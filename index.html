@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ジャンプマン</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: #202020;
+        color: #eee;
+        font-family: sans-serif;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+      }
+      #game-canvas {
+        image-rendering: pixelated;
+        background: #000;
+        max-width: 100%;
+        max-height: 100vh;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="game-canvas" width="1280" height="768"></canvas>
+    <script type="module" src="/src/app/game/main.ts"></script>
+  </body>
+</html>

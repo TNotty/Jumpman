@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ジャンプマン - 地形マスタエディタ</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #181818;
+        color: #eee;
+        font-family: sans-serif;
+        height: 100%;
+      }
+      #app {
+        display: grid;
+        grid-template-columns: 240px 360px 1fr;
+        grid-template-rows: 1fr auto;
+        grid-template-areas:
+          'list edit preview'
+          'list edit actions';
+        height: 100vh;
+      }
+      h1 {
+        font-size: 16px;
+        margin: 0 0 4px;
+      }
+      h2 {
+        font-size: 13px;
+        margin: 4px 0 2px;
+        border-bottom: 1px solid #444;
+        padding-bottom: 4px;
+        color: #bbb;
+      }
+      #list-panel {
+        grid-area: list;
+        background: #202020;
+        border-right: 1px solid #444;
+        padding: 12px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      #terrain-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .terrain-item {
+        background: #2b2b2b;
+        border: 1px solid #555;
+        color: #eee;
+        padding: 6px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        text-align: left;
+      }
+      .terrain-item.selected {
+        border-color: #f1c40f;
+        background: #3a3a1a;
+      }
+      #list-actions {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      #edit-panel {
+        grid-area: edit;
+        background: #1c1c1c;
+        border-right: 1px solid #444;
+        padding: 12px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      form label {
+        display: block;
+        font-size: 12px;
+        margin-top: 6px;
+        color: #ccc;
+      }
+      form input[type='text'],
+      form input[type='number'] {
+        width: 100%;
+        padding: 4px;
+        background: #111;
+        border: 1px solid #555;
+        color: #eee;
+        border-radius: 3px;
+        margin-top: 2px;
+      }
+      .row {
+        display: flex;
+        gap: 6px;
+        align-items: end;
+      }
+      .row > * {
+        flex: 1;
+      }
+      #grid-palette {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      #grid-canvas {
+        background: #262626;
+        border: 1px solid #444;
+        cursor: pointer;
+        align-self: flex-start;
+      }
+      #preview-panel {
+        grid-area: preview;
+        padding: 12px;
+        overflow: auto;
+      }
+      #palette-preview-canvas {
+        background: #101010;
+        border: 1px solid #444;
+        width: 100%;
+        max-width: 1280px;
+        height: auto;
+      }
+      #actions-panel {
+        grid-area: actions;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        border-top: 1px solid #444;
+      }
+      #actions-row {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      button {
+        cursor: pointer;
+        background: #2b2b2b;
+        border: 1px solid #555;
+        color: #eee;
+        padding: 6px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+      }
+      button:hover {
+        background: #383838;
+      }
+      #errors {
+        color: #ff6b6b;
+        font-size: 12px;
+        white-space: pre-wrap;
+        min-height: 1em;
+      }
+      #autosave-status {
+        color: #888;
+        font-size: 11px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="list-panel">
+        <h1>地形マスタ</h1>
+        <h2>地形一覧(最大8枠)</h2>
+        <div id="terrain-list"></div>
+        <div id="list-actions">
+          <button id="btn-add" type="button">追加</button>
+          <button id="btn-remove" type="button">削除</button>
+          <button id="btn-up" type="button">↑</button>
+          <button id="btn-down" type="button">↓</button>
+        </div>
+      </div>
+
+      <div id="edit-panel">
+        <h2>選択中の地形</h2>
+        <form id="terrain-form">
+          <label>ID<input type="text" id="field-id" /></label>
+          <label>名前<input type="text" id="field-name" /></label>
+          <div class="row">
+            <label>コスト<input type="number" id="field-cost" min="0" /></label>
+            <label><input type="checkbox" id="field-unlocked" /> 解放済み</label>
+          </div>
+          <div class="row">
+            <label>グリッド幅(最大8)<input type="number" id="field-grid-width" min="1" max="8" /></label>
+            <label>グリッド高さ(最大8)<input type="number" id="field-grid-height" min="1" max="8" /></label>
+          </div>
+        </form>
+        <h2>グリッド編集(クリックで塗る)</h2>
+        <div id="grid-palette"></div>
+        <canvas id="grid-canvas" width="320" height="320"></canvas>
+      </div>
+
+      <div id="preview-panel">
+        <h2>ゲーム内パレットの見た目プレビュー</h2>
+        <canvas id="palette-preview-canvas" width="1280" height="128"></canvas>
+      </div>
+
+      <div id="actions-panel">
+        <div id="actions-row">
+          <button id="btn-download" type="button">JSONダウンロード</button>
+          <button id="btn-load-file" type="button">ファイルから読込</button>
+          <input type="file" id="file-input" accept="application/json" hidden />
+          <button id="btn-load-local" type="button">下書きを読込</button>
+          <button id="btn-load-sample" type="button">同梱terrainMasterを複製</button>
+          <button id="btn-apply-to-game" type="button">ゲームへ反映して保存</button>
+        </div>
+        <div id="autosave-status"></div>
+        <div id="errors"></div>
+      </div>
+    </div>
+    <script type="module" src="/src/app/terrain/main.ts"></script>
+  </body>
+</html>

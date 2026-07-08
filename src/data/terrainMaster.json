@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "terrains": [
+    { "id": "h5", "name": "横5マス", "cost": 3, "unlocked": true, "grid": ["NNNNN"] },
+    { "id": "v3", "name": "縦3マス", "cost": 3, "unlocked": true, "grid": ["N", "N", "N"] },
+    { "id": "u", "name": "コの字", "cost": 5, "unlocked": true, "grid": ["NNN", "N.N"] },
+    { "id": "h3", "name": "横3マス", "cost": 2, "unlocked": true, "grid": ["NNN"] },
+    { "id": "step", "name": "階段", "cost": 4, "unlocked": true, "grid": ["..N", ".NN", "NNN"] },
+    { "id": "block1", "name": "1マス", "cost": 1, "unlocked": true, "grid": ["N"] },
+    { "id": "spike", "name": "トゲ", "cost": 3, "unlocked": false, "grid": ["S"] },
+    { "id": "platform", "name": "足場7マス", "cost": 6, "unlocked": false, "grid": ["NNNNNNN"] }
+  ]
+}
