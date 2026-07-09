@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>ジャンプマン - 統合版(ゲーム/エディタ/地形)</title>
+    <style>
+      /* ページ全体共通(モード非依存)。実際のレイアウト/背景はモードごとに body[data-mode] で切り替える。
+         data-mode は src/app/all/main.ts が location.hash を見て起動直後に設定する
+         (テンプレート内のマークアップは複製されるまで非表示なので、切替前のチラつきは発生しない)。 */
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        color: #eee;
+        font-family: sans-serif;
+      }
+
+      /* --- game モード(index.htmlより) ------------------------------------------------ */
+      body[data-mode='game'] {
+        background: #202020;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        /* スマートフォンでのタッチスクロール・ピンチズーム・長押しメニュー等を抑止する */
+        touch-action: none;
+        overscroll-behavior: none;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      #game-canvas {
+        image-rendering: pixelated;
+        background: #000;
+        max-width: 100%;
+        max-height: 100vh;
+        /* タッチ操作(タップ配置/消去)をブラウザのジェスチャー(スクロール/ズーム)に奪われないようにする */
+        touch-action: none;
+      }
+
+      /* --- editor / terrain モード共通(editor.html / terrain.htmlより) --------------------- */
+      body[data-mode='editor'],
+      body[data-mode='terrain'] {
+        background: #181818;
+        height: 100%;
+      }
+      body[data-mode='editor'] h1,
+      body[data-mode='terrain'] h1 {
+        font-size: 16px;
+        margin: 0 0 4px;
+      }
+      body[data-mode='editor'] h2,
+      body[data-mode='terrain'] h2 {
+        font-size: 13px;
+        margin: 4px 0 2px;
+        border-bottom: 1px solid #444;
+        padding-bottom: 4px;
+        color: #bbb;
+      }
+      body[data-mode='editor'] form label,
+      body[data-mode='terrain'] form label {
+        display: block;
+        font-size: 12px;
+        margin-top: 6px;
+        color: #ccc;
+      }
+      body[data-mode='editor'] form input,
+      body[data-mode='editor'] form select,
+      body[data-mode='terrain'] form input[type='text'],
+      body[data-mode='terrain'] form input[type='number'] {
+        width: 100%;
+        padding: 4px;
+        background: #111;
+        border: 1px solid #555;
+        color: #eee;
+        border-radius: 3px;
+        margin-top: 2px;
+      }
+      body[data-mode='editor'] .row,
+      body[data-mode='terrain'] .row {
+        display: flex;
+        gap: 6px;
+      }
+      body[data-mode='terrain'] .row {
+        align-items: end;
+      }
+      body[data-mode='editor'] .row > *,
+      body[data-mode='terrain'] .row > * {
+        flex: 1;
+      }
+      body[data-mode='editor'] button,
+      body[data-mode='terrain'] button {
+        cursor: pointer;
+        background: #2b2b2b;
+        border: 1px solid #555;
+        color: #eee;
+        padding: 6px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+      }
+      body[data-mode='editor'] button:hover,
+      body[data-mode='terrain'] button:hover {
+        background: #383838;
+      }
+      body[data-mode='editor'] #errors,
+      body[data-mode='terrain'] #errors {
+        color: #ff6b6b;
+        font-size: 12px;
+        white-space: pre-wrap;
+        min-height: 1em;
+      }
+      body[data-mode='editor'] #autosave-status,
+      body[data-mode='terrain'] #autosave-status {
+        color: #888;
+        font-size: 11px;
+      }
+
+      /* --- editor モード固有 ------------------------------------------------------------ */
+      body[data-mode='editor'] #app {
+        display: flex;
+        height: 100vh;
+      }
+      body[data-mode='editor'] #canvas-area {
+        position: relative;
+        flex: 1;
+        background: #000;
+        overflow: hidden;
+      }
+      body[data-mode='editor'] #editor-canvas {
+        background: #262626;
+        cursor: crosshair;
+        display: block;
+      }
+      body[data-mode='editor'] #coords {
+        position: absolute;
+        left: 8px;
+        bottom: 8px;
+        background: rgba(0, 0, 0, 0.6);
+        padding: 4px 8px;
+        font-size: 12px;
+        border-radius: 4px;
+        pointer-events: none;
+      }
+      body[data-mode='editor'] #hint {
+        position: absolute;
+        right: 8px;
+        bottom: 8px;
+        background: rgba(0, 0, 0, 0.6);
+        padding: 4px 8px;
+        font-size: 11px;
+        border-radius: 4px;
+        pointer-events: none;
+        color: #aaa;
+        text-align: right;
+      }
+      body[data-mode='editor'] #side-panel {
+        width: 340px;
+        background: #202020;
+        padding: 12px;
+        overflow-y: auto;
+        border-left: 1px solid #444;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      body[data-mode='editor'] #palette {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+      }
+      body[data-mode='editor'] .tool-btn {
+        background: #2b2b2b;
+        border: 1px solid #555;
+        color: #eee;
+        padding: 8px 2px;
+        font-size: 11px;
+        cursor: pointer;
+        border-radius: 4px;
+        line-height: 1.4;
+      }
+      body[data-mode='editor'] .tool-btn.selected {
+        border-color: #f1c40f;
+        background: #3a3a1a;
+      }
+      body[data-mode='editor'] .tool-btn .key {
+        display: block;
+        opacity: 0.55;
+        font-size: 10px;
+      }
+      body[data-mode='editor'] #actions {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      /* --- terrain モード固有 ------------------------------------------------------------ */
+      body[data-mode='terrain'] #app {
+        display: grid;
+        grid-template-columns: 240px 360px 1fr;
+        grid-template-rows: 1fr auto;
+        grid-template-areas:
+          'list edit preview'
+          'list edit actions';
+        height: 100vh;
+      }
+      body[data-mode='terrain'] #list-panel {
+        grid-area: list;
+        background: #202020;
+        border-right: 1px solid #444;
+        padding: 12px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      body[data-mode='terrain'] #terrain-list {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      body[data-mode='terrain'] .terrain-item {
+        background: #2b2b2b;
+        border: 1px solid #555;
+        color: #eee;
+        padding: 6px;
+        border-radius: 4px;
+        cursor: pointer;
+        font-size: 12px;
+        text-align: left;
+      }
+      body[data-mode='terrain'] .terrain-item.selected {
+        border-color: #f1c40f;
+        background: #3a3a1a;
+      }
+      body[data-mode='terrain'] #list-actions {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      body[data-mode='terrain'] #edit-panel {
+        grid-area: edit;
+        background: #1c1c1c;
+        border-right: 1px solid #444;
+        padding: 12px;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      body[data-mode='terrain'] #grid-palette {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+      body[data-mode='terrain'] #grid-canvas {
+        background: #262626;
+        border: 1px solid #444;
+        cursor: pointer;
+        align-self: flex-start;
+      }
+      body[data-mode='terrain'] #preview-panel {
+        grid-area: preview;
+        padding: 12px;
+        overflow: auto;
+      }
+      body[data-mode='terrain'] #palette-preview-canvas {
+        background: #101010;
+        border: 1px solid #444;
+        width: 100%;
+        max-width: 1280px;
+        height: auto;
+      }
+      body[data-mode='terrain'] #actions-panel {
+        grid-area: actions;
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        border-top: 1px solid #444;
+      }
+      body[data-mode='terrain'] #actions-row {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 各モードのDOMは<template>内に不活性(非レンダリング/getElementById非対象)な状態で保持し、
+         src/app/all/main.ts が起動時に location.hash から決めたモード「1つだけ」を
+         document.body へ複製する。3モード同時実行によるDOM ID衝突・イベント/キー競合を避けるため。 -->
+    <template id="tpl-game">
+      <canvas id="game-canvas" width="1280" height="768"></canvas>
+    </template>
+
+    <template id="tpl-editor">
+      <div id="app">
+        <div id="canvas-area">
+          <canvas id="editor-canvas" width="960" height="640"></canvas>
+          <div id="coords">x: -, y: -</div>
+          <div id="hint">左ドラッグ: 配置 / 右ドラッグ: 消去<br />Space+ドラッグ or 中ボタン: パン / ホイール: ズーム</div>
+        </div>
+        <div id="side-panel">
+          <h1>マップエディタ</h1>
+
+          <h2>パレット(数字キー1-9)</h2>
+          <div id="palette"></div>
+
+          <h2>ステージ設定</h2>
+          <form id="stage-form">
+            <label>ID<input type="text" id="field-id" /></label>
+            <label>名前<input type="text" id="field-name" /></label>
+            <div class="row">
+              <label>幅<input type="number" id="field-width" min="4" max="400" /></label>
+              <label>高さ<input type="number" id="field-height" min="4" max="400" /></label>
+            </div>
+            <label>
+              テーマ
+              <select id="field-theme">
+                <option value="grass">grass(草原)</option>
+                <option value="cave">cave(洞窟)</option>
+              </select>
+            </label>
+            <div class="row">
+              <label>マナ初期値<input type="number" id="field-mana-initial" min="0" /></label>
+              <label>マナ上限<input type="number" id="field-mana-max" min="0" /></label>
+            </div>
+            <div class="row">
+              <label>マナ回復/秒<input type="number" id="field-mana-regen" min="0" step="0.1" /></label>
+              <label>消去コスト<input type="number" id="field-erase-cost" min="0" /></label>
+            </div>
+          </form>
+
+          <h2>ファイル</h2>
+          <div id="actions">
+            <button id="btn-new" type="button">新規</button>
+            <button id="btn-download" type="button">JSONダウンロード</button>
+            <button id="btn-load-file" type="button">ファイルから読込</button>
+            <input type="file" id="file-input" accept="application/json" hidden />
+            <button id="btn-load-local" type="button">下書きを読込</button>
+            <button id="btn-load-sample1" type="button">stage01を複製</button>
+            <button id="btn-load-sample2" type="button">stage02を複製</button>
+            <button id="btn-testplay" type="button">テストプレイ</button>
+          </div>
+          <div id="autosave-status"></div>
+          <div id="errors"></div>
+        </div>
+      </div>
+    </template>
+
+    <template id="tpl-terrain">
+      <div id="app">
+        <div id="list-panel">
+          <h1>地形マスタ</h1>
+          <h2>地形一覧(最大8枠)</h2>
+          <div id="terrain-list"></div>
+          <div id="list-actions">
+            <button id="btn-add" type="button">追加</button>
+            <button id="btn-remove" type="button">削除</button>
+            <button id="btn-up" type="button">↑</button>
+            <button id="btn-down" type="button">↓</button>
+          </div>
+        </div>
+
+        <div id="edit-panel">
+          <h2>選択中の地形</h2>
+          <form id="terrain-form">
+            <label>ID<input type="text" id="field-id" /></label>
+            <label>名前<input type="text" id="field-name" /></label>
+            <div class="row">
+              <label>コスト<input type="number" id="field-cost" min="0" /></label>
+              <label><input type="checkbox" id="field-unlocked" /> 解放済み</label>
+            </div>
+            <div class="row">
+              <label>グリッド幅(最大8)<input type="number" id="field-grid-width" min="1" max="8" /></label>
+              <label>グリッド高さ(最大8)<input type="number" id="field-grid-height" min="1" max="8" /></label>
+            </div>
+          </form>
+          <h2>グリッド編集(クリックで塗る)</h2>
+          <div id="grid-palette"></div>
+          <canvas id="grid-canvas" width="320" height="320"></canvas>
+        </div>
+
+        <div id="preview-panel">
+          <h2>ゲーム内パレットの見た目プレビュー</h2>
+          <canvas id="palette-preview-canvas" width="1280" height="128"></canvas>
+        </div>
+
+        <div id="actions-panel">
+          <div id="actions-row">
+            <button id="btn-download" type="button">JSONダウンロード</button>
+            <button id="btn-load-file" type="button">ファイルから読込</button>
+            <input type="file" id="file-input" accept="application/json" hidden />
+            <button id="btn-load-local" type="button">下書きを読込</button>
+            <button id="btn-load-sample" type="button">同梱terrainMasterを複製</button>
+            <button id="btn-apply-to-game" type="button">ゲームへ反映して保存</button>
+          </div>
+          <div id="autosave-status"></div>
+          <div id="errors"></div>
+        </div>
+      </div>
+    </template>
+
+    <script type="module" src="/src/app/all/main.ts"></script>
+  </body>
+</html>

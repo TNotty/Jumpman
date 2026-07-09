@@ -20,20 +20,47 @@ export interface Loop {
 export type FrameScheduler = (callback: (time: number) => void) => number;
 export type FrameCanceller = (handle: number) => void;
 
-// 既定スケジューラ。通常は requestAnimationFrame を使うが、タブ非表示中は
-// rAF が完全に停止するため setTimeout(1フレーム分)にフォールバックする
-// (ヘッドレス環境・自動テスト・別タブでの動作確認を可能にするため)。
+// 既定スケジューラ。通常は requestAnimationFrame を使うが、タブ非表示・ウィンドウ遮蔽中は
+// rAF が完全に停止するため setTimeout にフォールバックする。
+// 注意: 「予約時点の可視状態」だけで rAF/setTimeout を選ぶと、rAF 予約直後に不可視化した場合
+// そのフレームが永遠に発火せずループが停止する。そのため rAF 予約時は常にウォッチドッグの
+// setTimeout を併走させ、rAF が発火しなければタイマー側がフレームを駆動する。
+// (どちらが先に発火してももう一方はキャンセルされ、二重発火はしない)
+const WATCHDOG_MS = 120;
+interface ScheduledFrame {
+  rafId: number | null;
+  timeoutId: number | null;
+}
+const scheduledFrames = new Map<number, ScheduledFrame>();
+let nextFrameHandle = 1;
+
 const defaultScheduler: FrameScheduler = (cb) => {
+  const handle = nextFrameHandle++;
+  const entry: ScheduledFrame = { rafId: null, timeoutId: null };
+  scheduledFrames.set(handle, entry);
+
+  const fire = (time: number): void => {
+    if (!scheduledFrames.delete(handle)) return; // 発火済み or キャンセル済み
+    if (entry.rafId !== null) cancelAnimationFrame(entry.rafId);
+    if (entry.timeoutId !== null) clearTimeout(entry.timeoutId);
+    cb(time);
+  };
+
   if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
-    return window.setTimeout(() => cb(performance.now()), FIXED_DT * 1000);
+    entry.timeoutId = window.setTimeout(() => fire(performance.now()), FIXED_DT * 1000);
+  } else {
+    entry.rafId = requestAnimationFrame(fire);
+    entry.timeoutId = window.setTimeout(() => fire(performance.now()), WATCHDOG_MS);
   }
-  return requestAnimationFrame(cb);
+  return handle;
 };
 
-// ループが保持する未実行ハンドルは常に1つなので、両方に対してキャンセルを試みる
 const defaultCanceller: FrameCanceller = (handle) => {
-  cancelAnimationFrame(handle);
-  clearTimeout(handle);
+  const entry = scheduledFrames.get(handle);
+  if (!entry) return;
+  scheduledFrames.delete(handle);
+  if (entry.rafId !== null) cancelAnimationFrame(entry.rafId);
+  if (entry.timeoutId !== null) clearTimeout(entry.timeoutId);
 };
 
 /**

@@ -22,6 +22,7 @@ import type {
   GameStatus as GameStatusType,
   JumpmanState,
   ManaState,
+  PaletteSlot,
   StageData,
   TerrainDefinition,
   Vec2,
@@ -37,8 +38,8 @@ export interface GameState {
   mana: ManaState;
   /** パレット8枠の元データ(terrainMaster.json)。空配列ならパレット未使用ステージ扱い */
   terrainMaster: TerrainDefinition[];
-  /** 現在パレットで選択中のスロット(0-7) */
-  selectedSlot: number;
+  /** 現在パレットで選択中のスロット(0-7、または常時選択可能な消去スロット'eraser') */
+  selectedSlot: PaletteSlot;
   breakableDamage: BreakableDamageMap;
   fallingBlocks: FallingBlockState[];
   status: GameStatusType;
@@ -74,6 +75,9 @@ function overlapsTile(position: Vec2, tile: Vec2): boolean {
 /**
  * placeTerrain/eraseTile/selectSlot コマンドをこのフレームの物理更新の前に適用する。
  * 判定・妥当性検証は placement.ts に委譲し、ここでは順番に適用するだけ。
+ * 消去スロット('eraser')選択中は、placeTerrainコマンド(左クリック/タップの主操作)を
+ * terrainIdを見ずに1マス消去として扱う。右クリック由来のeraseTileコマンドは
+ * 選択中スロットに関わらず常時有効(既存の挙動を維持)。
  */
 function applyCommands(state: GameState, commands: readonly Command[]): GameState {
   let grid = state.grid;
@@ -84,6 +88,13 @@ function applyCommands(state: GameState, commands: readonly Command[]): GameStat
   for (const command of commands) {
     switch (command.type) {
       case 'placeTerrain': {
+        if (selectedSlot === 'eraser') {
+          const check = checkErase(grid, command.x, command.y, mana, state.stage.eraseCost);
+          if (!check.ok) break;
+          grid = applyErase(grid, command.x, command.y);
+          mana = spend(mana, state.stage.eraseCost);
+          break;
+        }
         const terrain = state.terrainMaster.find((t) => t.id === command.terrainId);
         if (!terrain) break;
         const check = checkPlacement(grid, terrain, command.x, command.y, aabb, state.enemies, mana);
@@ -101,9 +112,13 @@ function applyCommands(state: GameState, commands: readonly Command[]): GameStat
       }
       case 'selectSlot': {
         const slot = command.slot;
-        const target = state.terrainMaster[slot];
-        if (slot >= 0 && slot < state.terrainMaster.length && target?.unlocked) {
-          selectedSlot = slot;
+        if (slot === 'eraser') {
+          selectedSlot = 'eraser';
+        } else {
+          const target = state.terrainMaster[slot];
+          if (slot >= 0 && slot < state.terrainMaster.length && target?.unlocked) {
+            selectedSlot = slot;
+          }
         }
         break;
       }

@@ -119,6 +119,13 @@ export interface ManaState {
   regenPerSec: number;
 }
 
+/**
+ * パレットで選択中の枠。地形マスタの数値スロット(0-7)か、常時選択可能な消去スロット('eraser')。
+ * 消去スロット選択中は、左クリック/タップによる主操作(placeTerrainコマンド)がgame.tsの
+ * コマンド処理で消去として扱われる(右クリックのeraseTileコマンドとは独立に常時有効)。
+ */
+export type PaletteSlot = number | 'eraser';
+
 /** 生成地形マスタの1エントリ(terrainMaster.json) */
 export interface TerrainDefinition {
   id: string;

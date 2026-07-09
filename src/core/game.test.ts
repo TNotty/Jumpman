@@ -66,6 +66,56 @@ describe('update', () => {
     expect(state.selectedSlot).toBe(2); // ロック解除済みなので切り替わる
   });
 
+  it('selectSlot: 消去スロット(eraser)は常時選択可能', () => {
+    const terrainMaster: TerrainDefinition[] = [{ id: 'h2', name: '横2', cost: 2, unlocked: true, grid: ['NN'] }];
+    let state = createGameState(buildStage(), terrainMaster);
+
+    state = update(state, [{ type: 'selectSlot', slot: 'eraser' }], FIXED_DT);
+    expect(state.selectedSlot).toBe('eraser');
+  });
+
+  it('消去スロット選択中: placeTerrainコマンドが1マス消去として扱われる(terrainIdは無視される)', () => {
+    const terrainMaster: TerrainDefinition[] = [{ id: 'h2', name: '横2', cost: 2, unlocked: true, grid: ['NN'] }];
+    let state = createGameState(buildStage({ mana: { initial: 10, max: 50, regenPerSec: 0 } }), terrainMaster);
+
+    // 消去対象として、ステージ由来の床(row3)の1マスを使う
+    expect(state.grid.get(6, 3)).toBe(BlockType.Normal);
+
+    state = update(state, [{ type: 'selectSlot', slot: 'eraser' }], FIXED_DT);
+    expect(state.selectedSlot).toBe('eraser');
+
+    const manaBefore = state.mana.current;
+    state = update(state, [{ type: 'placeTerrain', terrainId: 'h2', x: 6, y: 3 }], FIXED_DT);
+
+    expect(state.grid.get(6, 3)).toBe(BlockType.Empty); // 生成ではなく消去された
+    expect(state.mana.current).toBe(manaBefore - state.stage.eraseCost); // 消去コスト(eraseCost)分だけ消費
+  });
+
+  it('消去スロット選択中: マナ不足なら拒否され、グリッド・マナとも変化しない', () => {
+    const terrainMaster: TerrainDefinition[] = [{ id: 'h2', name: '横2', cost: 2, unlocked: true, grid: ['NN'] }];
+    // eraseCost(既定3)未満のマナしか無い状態にする
+    let state = createGameState(buildStage({ mana: { initial: 1, max: 50, regenPerSec: 0 } }), terrainMaster);
+    expect(state.stage.eraseCost).toBe(3);
+
+    state = update(state, [{ type: 'selectSlot', slot: 'eraser' }], FIXED_DT);
+    const before = state.grid.get(6, 3);
+    const manaBefore = state.mana.current;
+
+    state = update(state, [{ type: 'placeTerrain', terrainId: 'h2', x: 6, y: 3 }], FIXED_DT);
+
+    expect(state.grid.get(6, 3)).toBe(before); // 変化しない
+    expect(state.mana.current).toBe(manaBefore); // 消費されない
+  });
+
+  it('右クリック相当のeraseTileコマンドは、消去スロットを選択していなくても常時有効', () => {
+    const terrainMaster: TerrainDefinition[] = [{ id: 'h2', name: '横2', cost: 2, unlocked: true, grid: ['NN'] }];
+    let state = createGameState(buildStage({ mana: { initial: 10, max: 50, regenPerSec: 0 } }), terrainMaster);
+    expect(state.selectedSlot).toBe(0); // 地形スロットを選択したまま(消去スロットではない)
+
+    state = update(state, [{ type: 'eraseTile', x: 6, y: 3 }], FIXED_DT);
+    expect(state.grid.get(6, 3)).toBe(BlockType.Empty);
+  });
+
   it('placeTerrain/eraseTile: パレット経由で実際に地形を生成・消去し、マナを消費する', () => {
     const terrainMaster: TerrainDefinition[] = [{ id: 'h2', name: '横2', cost: 2, unlocked: true, grid: ['NN'] }];
     let state = createGameState(buildStage(), terrainMaster);

@@ -13,9 +13,9 @@ import {
 import { breakableSpriteStage } from '../core/blocks';
 import type { GameState } from '../core/game';
 import { jumpmanAABB } from '../core/jumpman';
-import { checkPlacement } from '../core/placement';
+import { checkErase, checkPlacement } from '../core/placement';
 import { BlockType, EnemyType, GameStatus } from '../core/types';
-import type { TerrainDefinition } from '../core/types';
+import type { PaletteSlot, TerrainDefinition } from '../core/types';
 import type { AssetStore } from './assets';
 import type { CameraState } from './camera';
 import { drawSprite } from './sprites';
@@ -189,6 +189,11 @@ export function paletteSlotRect(index: number): { x: number; y: number; w: numbe
   };
 }
 
+/** 消去スロットの矩形。8個の地形スロット(index 0-7)の右隣(index 8相当の位置)に独立して1枠配置する */
+export function eraserSlotRect(): { x: number; y: number; w: number; h: number } {
+  return paletteSlotRect(PALETTE_SLOT_COUNT);
+}
+
 /** 地形の形状を矩形の色塗りで縮小プレビューする。マップ/地形マスタエディタからも再利用する。 */
 export function drawTerrainShapePreview(
   ctx: CanvasRenderingContext2D,
@@ -223,7 +228,7 @@ export function drawTerrainShapePreview(
 export function drawPaletteSlots(
   ctx: CanvasRenderingContext2D,
   terrains: readonly TerrainDefinition[],
-  selectedSlot: number,
+  selectedSlot: PaletteSlot,
 ): void {
   const count = Math.min(PALETTE_SLOT_COUNT, terrains.length);
   for (let i = 0; i < count; i++) {
@@ -257,6 +262,39 @@ export function drawPaletteSlots(
     ctx.fillText(`${terrain.name} (${terrain.cost})`, rect.x + rect.w / 2, rect.y + rect.h - 4);
     ctx.restore();
   }
+}
+
+/** 消去スロット(ゴミ箱アイコン+消去コスト表示)を描画する。8地形スロットの右に独立した1枠として置く */
+export function drawEraserSlot(ctx: CanvasRenderingContext2D, selected: boolean, cost: number): void {
+  const rect = eraserSlotRect();
+
+  ctx.save();
+  ctx.fillStyle = '#2b1a1a';
+  ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+
+  ctx.strokeStyle = selected ? '#f1c40f' : '#555555';
+  ctx.lineWidth = selected ? 3 : 1;
+  ctx.strokeRect(rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2);
+
+  // ゴミ箱風のアイコン(簡易): 蓋+本体の矩形
+  const iconCx = rect.x + rect.w / 2;
+  const iconTop = rect.y + 14;
+  ctx.strokeStyle = '#e74c3c';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(iconCx - 16, iconTop + 10, 32, 34);
+  ctx.beginPath();
+  ctx.moveTo(iconCx - 22, iconTop + 10);
+  ctx.lineTo(iconCx + 22, iconTop + 10);
+  ctx.moveTo(iconCx - 8, iconTop + 4);
+  ctx.lineTo(iconCx + 8, iconTop + 4);
+  ctx.stroke();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '13px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(`消去 (${cost})`, rect.x + rect.w / 2, rect.y + rect.h - 4);
+  ctx.restore();
 }
 
 function drawManaBar(ctx: CanvasRenderingContext2D, state: GameState): void {
@@ -299,6 +337,9 @@ function drawPaletteArea(ctx: CanvasRenderingContext2D, state: GameState): void 
   ctx.strokeRect(1, y + 1, LOGICAL_WIDTH - 2, PALETTE_HEIGHT - 2);
   ctx.restore();
 
+  // 消去スロットは地形マスタの有無に関わらず常時使えるため、8地形スロットとは独立に描画する
+  drawEraserSlot(ctx, state.selectedSlot === 'eraser', state.stage.eraseCost);
+
   if (state.terrainMaster.length === 0) {
     ctx.save();
     ctx.fillStyle = '#888888';
@@ -313,7 +354,26 @@ function drawPaletteArea(ctx: CanvasRenderingContext2D, state: GameState): void 
   drawManaBar(ctx, state);
 }
 
-/** カーソル位置に選択中の地形の半透明プレビューを描画する(可=白/不可=赤) */
+/** 消去スロット選択中のプレビュー: 消去対象マスに枠を描く(消去可=白枠/不可=赤枠) */
+function drawErasePreview(
+  ctx: CanvasRenderingContext2D,
+  state: GameState,
+  camera: CameraState,
+  hoverTile: { x: number; y: number },
+): void {
+  const check = checkErase(state.grid, hoverTile.x, hoverTile.y, state.mana, state.stage.eraseCost);
+  const destX = hoverTile.x * TILE_SIZE - camera.x;
+  const destY = hoverTile.y * TILE_SIZE - camera.y;
+
+  ctx.save();
+  ctx.strokeStyle = check.ok ? '#ffffff' : '#ff3b3b';
+  ctx.lineWidth = 3;
+  ctx.strokeRect(destX + 2, destY + 2, TILE_SIZE - 4, TILE_SIZE - 4);
+  ctx.restore();
+}
+
+/** カーソル/タッチ位置に応じたプレビューを描画する。消去スロット選択中は消去対象マスの赤/白枠、
+ * それ以外は選択中の地形の半透明プレビュー(可=白/不可=赤)。 */
 function drawPlacementPreview(
   ctx: CanvasRenderingContext2D,
   state: GameState,
@@ -321,6 +381,12 @@ function drawPlacementPreview(
   hoverTile: { x: number; y: number } | null,
 ): void {
   if (!hoverTile) return;
+
+  if (state.selectedSlot === 'eraser') {
+    drawErasePreview(ctx, state, camera, hoverTile);
+    return;
+  }
+
   const terrain = state.terrainMaster[state.selectedSlot];
   if (!terrain) return;
 

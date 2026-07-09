@@ -7,6 +7,7 @@ import stage02Raw from '../../data/stages/stage02.json';
 import { AssetStore, loadAssets } from '../../render/assets';
 import { blockSpriteName, enemySpriteName } from '../../render/renderer';
 import { drawSprite } from '../../render/sprites';
+import { openGameDraft } from '../../platform/navigation';
 import { downloadJSON, loadJSON, readJSONFile, removeJSON, saveJSON } from '../../platform/storage';
 import { DRAFT_STAGE_STORAGE_KEY, EDIT_REQUEST_STORAGE_KEY } from '../game/main';
 import { EditorTool, TOOL_LABEL, TOOL_ORDER, blockTypeForTool, enemyTypeForTool, isPaintTool, toolFromKey } from './paletteTool';
@@ -480,7 +481,7 @@ function main(): void {
     }
     clearErrors();
     saveJSON(DRAFT_STAGE_STORAGE_KEY, result.value);
-    window.open('/index.html?stage=draft', '_blank');
+    openGameDraft();
   });
 
   // --- 起動 -----------------------------------------------------------------
@@ -501,7 +502,7 @@ function main(): void {
   syncFormFromDraft();
   renderPalette();
 
-  loadAssets('/assets')
+  loadAssets()
     .then((loaded) => {
       assets = loaded;
       scheduleRender();

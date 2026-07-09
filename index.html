@@ -2,7 +2,10 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
     <title>ジャンプマン</title>
     <style>
       html, body {
@@ -15,12 +18,19 @@
         justify-content: center;
         align-items: center;
         min-height: 100vh;
+        /* スマートフォンでのタッチスクロール・ピンチズーム・長押しメニュー等を抑止する */
+        touch-action: none;
+        overscroll-behavior: none;
+        -webkit-user-select: none;
+        user-select: none;
       }
       #game-canvas {
         image-rendering: pixelated;
         background: #000;
         max-width: 100%;
         max-height: 100vh;
+        /* タッチ操作(タップ配置/消去)をブラウザのジェスチャー(スクロール/ズーム)に奪われないようにする */
+        touch-action: none;
       }
     </style>
   </head>

@@ -46,8 +46,16 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   });
 }
 
-/** manifest.json を読み込み、全スプライトをプリロードして AssetStore を返す */
-export async function loadAssets(baseUrl = '/assets'): Promise<AssetStore> {
+/**
+ * 既定のアセットベースURL。import.meta.env.BASE_URL(vite.config.tsのbase設定、既定 './')を
+ * 基準にした相対パスにすることで、サブパス配信(itch.io等)でも絶対パス '/assets' 決め打ちにならず
+ * 正しく解決できるようにする。
+ */
+function defaultAssetBaseUrl(): string {
+  return `${import.meta.env.BASE_URL}assets`;
+}
+
+async function loadAssetsFromNetwork(baseUrl: string): Promise<AssetStore> {
   const response = await fetch(`${baseUrl}/manifest.json`);
   if (!response.ok) {
     throw new Error(`manifest.json の取得に失敗しました: ${response.status}`);
@@ -68,4 +76,21 @@ export async function loadAssets(baseUrl = '/assets'): Promise<AssetStore> {
   );
 
   return new AssetStore(new Map(entries));
+}
+
+/**
+ * manifest.json を読み込み、全スプライトをプリロードして AssetStore を返す。
+ * VITE_EMBED_ASSETS=1(単一ページ統合ビルド dist-artifact)の場合は fetch を一切使わず、
+ * バンドルに埋め込んだSVG(embeddedAssets.ts)を使う。if/elseの両分岐を明示的に書くことで、
+ * ビルド時にimport.meta.env.VITE_EMBED_ASSETSが静的に確定した際、どちらか片方の分岐
+ * (未使用の方)がdead codeとして除去され、成果物に混入しないようにしている
+ * (通常ビルドにembeddedAssets.tsの埋め込みSVGが、artifactビルドにfetch呼び出しが残らない)。
+ */
+export async function loadAssets(baseUrl: string = defaultAssetBaseUrl()): Promise<AssetStore> {
+  if (import.meta.env.VITE_EMBED_ASSETS === '1') {
+    const { loadEmbeddedAssets } = await import('./embeddedAssets');
+    return loadEmbeddedAssets();
+  } else {
+    return loadAssetsFromNetwork(baseUrl);
+  }
 }

@@ -25,6 +25,7 @@ import {
 } from '../../render/screens';
 import type { StageMeta } from '../../render/screens';
 import { InputManager } from '../../input/input';
+import { openEditor, openTerrainEditor } from '../../platform/navigation';
 import { loadJSON, saveJSON } from '../../platform/storage';
 import { createLoop } from '../loop';
 
@@ -76,19 +77,19 @@ function createDevOverlay(): DevOverlayHandles {
   const titleLinksEl = document.createElement('div');
   titleLinksEl.style.cssText = 'display:none; gap:6px; pointer-events:auto;';
 
-  const editorLink = document.createElement('a');
-  editorLink.href = '/editor.html';
-  editorLink.target = '_blank';
-  editorLink.rel = 'noopener';
+  // 単一ページ統合ビルド(all.html)では実在するeditor.html/terrain.htmlが無いため、
+  // <a href>ではなくplatform/navigationのハッシュ切替関数を呼ぶボタンにする。
+  const editorLink = document.createElement('button');
+  editorLink.type = 'button';
   editorLink.textContent = 'マップエディタ';
-  editorLink.style.cssText = DEV_OVERLAY_LINK_STYLE;
+  editorLink.style.cssText = `${DEV_OVERLAY_LINK_STYLE} cursor:pointer;`;
+  editorLink.addEventListener('click', () => openEditor());
 
-  const terrainLink = document.createElement('a');
-  terrainLink.href = '/terrain.html';
-  terrainLink.target = '_blank';
-  terrainLink.rel = 'noopener';
+  const terrainLink = document.createElement('button');
+  terrainLink.type = 'button';
   terrainLink.textContent = '地形エディタ';
-  terrainLink.style.cssText = DEV_OVERLAY_LINK_STYLE;
+  terrainLink.style.cssText = `${DEV_OVERLAY_LINK_STYLE} cursor:pointer;`;
+  terrainLink.addEventListener('click', () => openTerrainEditor());
 
   titleLinksEl.append(editorLink, terrainLink);
 
@@ -179,7 +180,7 @@ async function main(): Promise<void> {
 
   let assets: AssetStore;
   try {
-    assets = await loadAssets('/assets');
+    assets = await loadAssets();
   } catch (error) {
     drawLoadingScreen(ctx, 'アセットの読み込みに失敗しました');
     console.error(error);
@@ -205,9 +206,11 @@ async function main(): Promise<void> {
 
   // ?stage=draft: マップエディタ(Phase C)からのテストプレイ連携。
   // localStorageに保存されたdraftステージがあれば、タイトル/選択をスキップして直接プレイする。
+  // 単一ページ統合ビルド(all.html)では ?stage=draft の代わりに #game-draft ハッシュを使う
+  // (platform/navigation.ts の openGameDraft() 参照)。
   let scene: Scene = { kind: 'title' };
   const params = new URLSearchParams(window.location.search);
-  if (params.get('stage') === 'draft') {
+  if (params.get('stage') === 'draft' || window.location.hash === '#game-draft') {
     const draftRaw = loadJSON<unknown>(DRAFT_STAGE_STORAGE_KEY);
     const draftResult = draftRaw !== null ? validateStage(draftRaw) : null;
     if (draftResult && draftResult.ok) {
@@ -231,23 +234,21 @@ async function main(): Promise<void> {
   // 開発限定UI(タイトルのエディタリンク・プレイ中の「エディタで開く」ボタン)。
   // import.meta.env.DEV は `vite build` の本番ビルドでは静的に false になるため、
   // このブロックごと実行されない(=DOM要素も生成されない)。
+  // VITE_ENABLE_EDITOR=1 でビルドした場合(テスト版リリースビルド)は本番ビルドでも有効にする。
   let devOverlay: DevOverlayHandles | null = null;
-  if (import.meta.env.DEV) {
+  if (import.meta.env.DEV || import.meta.env.VITE_ENABLE_EDITOR === '1') {
     devOverlay = createDevOverlay();
     devOverlay.playingButton.addEventListener('click', () => {
       if (scene.kind !== 'playing') return;
       // プレイ開始時点の元StageData(グリッドの変化を含まない)をそのまま渡す。
       saveJSON(EDIT_REQUEST_STORAGE_KEY, scene.stageData);
-      window.open('/editor.html', '_blank');
+      openEditor();
     });
   }
 
-  canvas.addEventListener('click', (event) => {
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    const point = { x: (event.clientX - rect.left) * scaleX, y: (event.clientY - rect.top) * scaleY };
-
+  // タイトル/ステージ選択/クリア画面のタップ・クリック共通処理。
+  // scene.kind === 'playing' のときは InputManager の mousedown/touchend が地形生成/消去を処理する。
+  function handleScreenTap(point: { x: number; y: number }): void {
     if (scene.kind === 'title') {
       scene = { kind: 'stageSelect' };
       return;
@@ -277,8 +278,26 @@ async function main(): Promise<void> {
       }
       return;
     }
+  }
 
-    // scene.kind === 'playing' のときは InputManager の mousedown が地形生成/消去を処理する
+  function toCanvasPointFromClient(clientX: number, clientY: number): { x: number; y: number } {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+  }
+
+  canvas.addEventListener('click', (event) => {
+    handleScreenTap(toCanvasPointFromClient(event.clientX, event.clientY));
+  });
+
+  // InputManager側のtouchstart/touchendがpreventDefault()するため、タッチ後に合成される
+  // clickイベントは発火しない。そのためタイトル/選択/クリア画面の遷移はここで別途拾う
+  // (地形配置/消去はplaying中のみInputManagerが処理するため、二重発火の心配はない)。
+  canvas.addEventListener('touchend', (event) => {
+    const touch = event.changedTouches.item(0);
+    if (!touch) return;
+    handleScreenTap(toCanvasPointFromClient(touch.clientX, touch.clientY));
   });
 
   const loop = createLoop({
