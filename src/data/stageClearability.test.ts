@@ -1,9 +1,14 @@
-// 同梱ステージ(stage01〜stage05、各約600タイル)のクリア可能性を検証する回帰テスト。
-// 自動ジャンプだけでは越えられない穴(gaps、幅8〜9タイル)に対して、プレイヤーが実際に近づいた
+// 同梱ステージ(stage01〜stage10、セグメント合成方式で生成された可変長ステージ)の
+// クリア可能性を検証する回帰テスト。
+// 自動ジャンプだけでは越えられない穴(gaps、幅6〜10タイル)に対して、プレイヤーが実際に近づいた
 // タイミングでスクリプト化された地形配置コマンドを与えてupdateをシミュレートし、
 // ジャンプマンが死亡せずゴールに到達する(status: Cleared)ことを確認する。
 // マナは実際のコマンド経由で消費させ(チートしない)、各穴の橋は「その場に近づいてから」置く
 // (frame0で全部まとめて置かない)ことで、実際のマナ回復収支に依存した配置になっていることを示す。
+//
+// 「橋が必要な位置リスト」はスクリプト側で座標を二重管理しないよう、
+// scripts/generateStages.mjs が書き出す gaps.generated.json をそのまま読み込んで使う
+// (生成器が出力し、テストがそれを使う、という現行パターンを維持)。
 import { describe, expect, it } from 'vitest';
 import { validateStage } from './schema';
 import stage01Raw from './stages/stage01.json';
@@ -11,6 +16,12 @@ import stage02Raw from './stages/stage02.json';
 import stage03Raw from './stages/stage03.json';
 import stage04Raw from './stages/stage04.json';
 import stage05Raw from './stages/stage05.json';
+import stage06Raw from './stages/stage06.json';
+import stage07Raw from './stages/stage07.json';
+import stage08Raw from './stages/stage08.json';
+import stage09Raw from './stages/stage09.json';
+import stage10Raw from './stages/stage10.json';
+import gapsData from './stages/gaps.generated.json';
 import { FIXED_DT } from '../core/constants';
 import { createGameState, update } from '../core/game';
 import type { GameState } from '../core/game';
@@ -27,11 +38,27 @@ const BRIDGE_TERRAINS: TerrainDefinition[] = [
   { id: 'block1', name: '1マス', cost: 1, unlocked: true, unlockCost: 0, grid: ['N'] },
 ];
 
-/** 幅(8か9)から橋の内訳(h5+h3、または h5+h3+block1)を返す */
+/** 幅(5以上の任意値)を、5マス/3マス/1マスの橋パーツの組み合わせ(貪欲法)に分解する */
 function bridgePiecesForWidth(width: number): { terrainId: string; offset: number }[] {
-  if (width === 8) return [{ terrainId: 'h5', offset: 0 }, { terrainId: 'h3', offset: 5 }];
-  if (width === 9) return [{ terrainId: 'h5', offset: 0 }, { terrainId: 'h3', offset: 5 }, { terrainId: 'block1', offset: 8 }];
-  throw new Error(`このテストヘルパーは幅8/9の穴のみ対応: ${width}`);
+  const pieces: { terrainId: string; offset: number }[] = [];
+  let remaining = width;
+  let offset = 0;
+  while (remaining >= 5) {
+    pieces.push({ terrainId: 'h5', offset });
+    offset += 5;
+    remaining -= 5;
+  }
+  while (remaining >= 3) {
+    pieces.push({ terrainId: 'h3', offset });
+    offset += 3;
+    remaining -= 3;
+  }
+  while (remaining >= 1) {
+    pieces.push({ terrainId: 'block1', offset });
+    offset += 1;
+    remaining -= 1;
+  }
+  return pieces;
 }
 
 /** 指定x座標まで(ジャンプマンが到達するまで)何もせずシミュレートを進める */
@@ -58,7 +85,7 @@ function runUntilClearedOrTimeout(state: GameState, maxSteps: number): { state: 
 /**
  * ステージの全gapを「プレイヤーが近づいたタイミングで橋を架ける」実プレイに近い手順でシミュレートし、
  * 死亡せずゴールに到達する(Cleared)ことを検証する。
- * gapsは各穴の { x, width, y }(yはその穴の床の高さ=floorTopY)を到達順に並べたもの。
+ * gapsは各穴の { x, width, y }(yはその穴の床の高さ)を到達順に並べたもの。
  */
 function simulateStageWithJustInTimeBridges(
   stageData: StageData,
@@ -114,72 +141,98 @@ function loadStage(raw: unknown, label: string): StageData {
 // 1区間あたりのタイムアウト予算も2倍にする(元は4000)。
 const MAX_STEPS_PER_LEG = 8000;
 
-describe('同梱ステージのクリア可能性(実プレイに近い、その場での橋渡しによる検証)', () => {
-  it('stage01.json: 穴(x=150, 幅8)を橋渡しすれば死亡せずゴールに到達できる', () => {
-    const stageData = loadStage(stage01Raw, 'stage01.json');
-    const gaps = [{ x: 150, width: 8, y: stageData.height - 2 }];
-    const { finalState, totalSteps } = simulateStageWithJustInTimeBridges(stageData, gaps, MAX_STEPS_PER_LEG);
+interface GapEntry {
+  x: number;
+  width: number;
+  y: number;
+}
 
-    expect(finalState.status).toBe(GameStatus.Cleared);
-    expect(totalSteps).toBeLessThan(MAX_STEPS_PER_LEG * 4);
-    expect(finalState.jumpman.hp).toBeGreaterThan(0);
+const STAGES: { id: string; raw: unknown; timeoutMultiplier: number }[] = [
+  { id: 'stage01', raw: stage01Raw, timeoutMultiplier: 4 },
+  { id: 'stage02', raw: stage02Raw, timeoutMultiplier: 5 },
+  { id: 'stage03', raw: stage03Raw, timeoutMultiplier: 5 },
+  { id: 'stage04', raw: stage04Raw, timeoutMultiplier: 6 },
+  { id: 'stage05', raw: stage05Raw, timeoutMultiplier: 7 },
+  { id: 'stage06', raw: stage06Raw, timeoutMultiplier: 8 },
+  { id: 'stage07', raw: stage07Raw, timeoutMultiplier: 10 },
+  { id: 'stage08', raw: stage08Raw, timeoutMultiplier: 10 },
+  { id: 'stage09', raw: stage09Raw, timeoutMultiplier: 8 },
+  { id: 'stage10', raw: stage10Raw, timeoutMultiplier: 10 },
+];
+
+const GAPS_BY_STAGE = gapsData as Record<string, GapEntry[]>;
+
+describe('同梱ステージ(全10本)のクリア可能性(実プレイに近い、その場での橋渡しによる検証)', () => {
+  for (const { id, raw, timeoutMultiplier } of STAGES) {
+    it(`${id}.json: 生成器が出力したgapsをその場で橋渡しすれば死亡せずゴールに到達できる`, () => {
+      const stageData = loadStage(raw, `${id}.json`);
+      const gaps = GAPS_BY_STAGE[id] ?? [];
+      expect(gaps.length).toBeGreaterThan(0);
+
+      const { finalState, totalSteps } = simulateStageWithJustInTimeBridges(stageData, gaps, MAX_STEPS_PER_LEG);
+
+      expect(finalState.status).toBe(GameStatus.Cleared);
+      expect(totalSteps).toBeLessThan(MAX_STEPS_PER_LEG * timeoutMultiplier);
+      expect(finalState.jumpman.hp).toBeGreaterThan(0);
+    });
+  }
+});
+
+describe('スクリプト生成ステージの構造的な健全性', () => {
+  it('各ステージの完全平坦(装飾の無いflat床)な連続区間は25タイル未満である(平坦が延々続く構造の排除)', () => {
+    for (const { id, raw } of STAGES) {
+      const stageData = loadStage(raw, `${id}.json`);
+      const floorTopY = stageData.height - 2;
+      const isPlainFlat = (x: number): boolean => {
+        if (stageData.tiles[floorTopY]?.[x] !== 'N') return false;
+        for (let y = 0; y < floorTopY; y++) {
+          if (stageData.tiles[y]?.[x] !== '.') return false;
+        }
+        return true;
+      };
+      let maxRun = 0;
+      let run = 0;
+      for (let x = 0; x < stageData.width; x++) {
+        if (isPlainFlat(x)) {
+          run += 1;
+          maxRun = Math.max(maxRun, run);
+        } else {
+          run = 0;
+        }
+      }
+      expect(maxRun, `${id}: 完全平坦の最大連続長`).toBeLessThan(25);
+    }
   });
 
-  it('stage02.json: 穴2箇所(x=150/400、幅8/9)を橋渡しすれば死亡せずゴールに到達できる(壊れる/落ちる/トゲを通過する)', () => {
-    const stageData = loadStage(stage02Raw, 'stage02.json');
-    const gaps = [
-      { x: 150, width: 8, y: stageData.height - 2 },
-      { x: 400, width: 9, y: stageData.height - 2 },
-    ];
-    const { finalState, totalSteps } = simulateStageWithJustInTimeBridges(stageData, gaps, MAX_STEPS_PER_LEG);
-
-    expect(finalState.status).toBe(GameStatus.Cleared);
-    expect(totalSteps).toBeLessThan(MAX_STEPS_PER_LEG * 4);
-    expect(finalState.jumpman.hp).toBeGreaterThan(0);
+  it('各ステージはコインをちょうど5枚持つ', () => {
+    for (const { id, raw } of STAGES) {
+      const stageData = loadStage(raw, `${id}.json`);
+      expect(stageData.coins, id).toHaveLength(5);
+    }
   });
 
-  it('stage03.json: 穴3箇所(x=120/300/470)を橋渡しすれば死亡せずゴールに到達できる', () => {
-    const stageData = loadStage(stage03Raw, 'stage03.json');
-    const gaps = [
-      { x: 120, width: 8, y: stageData.height - 2 },
-      { x: 300, width: 9, y: stageData.height - 2 },
-      { x: 470, width: 8, y: stageData.height - 2 },
-    ];
-    const { finalState, totalSteps } = simulateStageWithJustInTimeBridges(stageData, gaps, MAX_STEPS_PER_LEG);
+  it('start/goal/checkpointsはgap(要橋渡しの穴)のx範囲上に置かれていない(足場が無い位置に配置されていない)', () => {
+    for (const { id, raw } of STAGES) {
+      const stageData = loadStage(raw, `${id}.json`);
+      const gaps = GAPS_BY_STAGE[id] ?? [];
+      const inGap = (x: number): boolean => gaps.some((g) => x >= g.x && x < g.x + g.width);
 
-    expect(finalState.status).toBe(GameStatus.Cleared);
-    expect(totalSteps).toBeLessThan(MAX_STEPS_PER_LEG * 5);
-    expect(finalState.jumpman.hp).toBeGreaterThan(0);
+      expect(inGap(stageData.start.x), `${id}: start`).toBe(false);
+      expect(inGap(stageData.goal.x), `${id}: goal`).toBe(false);
+      stageData.checkpoints.forEach((cp, index) => {
+        expect(inGap(cp.x), `${id}: checkpoints[${index}]`).toBe(false);
+      });
+    }
   });
 
-  it('stage04.json: 穴4箇所(x=100/260/420/540)を橋渡しすれば死亡せずゴールに到達できる', () => {
-    const stageData = loadStage(stage04Raw, 'stage04.json');
-    const gaps = [
-      { x: 100, width: 8, y: stageData.height - 2 },
-      { x: 260, width: 9, y: stageData.height - 2 },
-      { x: 420, width: 8, y: stageData.height - 2 },
-      { x: 540, width: 9, y: stageData.height - 2 },
-    ];
-    const { finalState, totalSteps } = simulateStageWithJustInTimeBridges(stageData, gaps, MAX_STEPS_PER_LEG);
-
-    expect(finalState.status).toBe(GameStatus.Cleared);
-    expect(totalSteps).toBeLessThan(MAX_STEPS_PER_LEG * 6);
-    expect(finalState.jumpman.hp).toBeGreaterThan(0);
-  });
-
-  it('stage05.json: 穴5箇所(x=90/220/350/470/560)を橋渡しすれば死亡せずゴールに到達できる(最終ステージ)', () => {
-    const stageData = loadStage(stage05Raw, 'stage05.json');
-    const gaps = [
-      { x: 90, width: 8, y: stageData.height - 2 },
-      { x: 220, width: 9, y: stageData.height - 2 },
-      { x: 350, width: 8, y: stageData.height - 2 },
-      { x: 470, width: 9, y: stageData.height - 2 },
-      { x: 560, width: 8, y: stageData.height - 2 },
-    ];
-    const { finalState, totalSteps } = simulateStageWithJustInTimeBridges(stageData, gaps, MAX_STEPS_PER_LEG);
-
-    expect(finalState.status).toBe(GameStatus.Cleared);
-    expect(totalSteps).toBeLessThan(MAX_STEPS_PER_LEG * 7);
-    expect(finalState.jumpman.hp).toBeGreaterThan(0);
+  it('番号が進むほどステージ幅が広くなる(400〜600の範囲)', () => {
+    let prevWidth = 0;
+    for (const { id, raw } of STAGES) {
+      const stageData = loadStage(raw, `${id}.json`);
+      expect(stageData.width, `${id}.width`).toBeGreaterThanOrEqual(400);
+      expect(stageData.width, `${id}.width`).toBeLessThanOrEqual(600);
+      expect(stageData.width, `${id}: 前ステージ以上の幅`).toBeGreaterThanOrEqual(prevWidth);
+      prevWidth = stageData.width;
+    }
   });
 });

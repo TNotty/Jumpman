@@ -22,6 +22,7 @@ describe('defaultSaveData', () => {
     expect(data.unlockedTerrainIds).toEqual([]);
     expect(data.loadout).toEqual(['h5', 'v3', 'u', null, null, null, null, null]);
     expect(data.loadout).toHaveLength(LOADOUT_SIZE);
+    expect(data.clearedStageIds).toEqual([]);
   });
 
   it('呼び出しごとに独立したオブジェクトを返す(参照共有によるミューテーション汚染が無い)', () => {
@@ -30,9 +31,11 @@ describe('defaultSaveData', () => {
     a.wallet = 999;
     a.loadout[0] = 'changed';
     a.upgrades.hp = 5;
+    a.clearedStageIds.push('stage01');
     expect(b.wallet).toBe(0);
     expect(b.loadout[0]).toBe('h5');
     expect(b.upgrades.hp).toBe(0);
+    expect(b.clearedStageIds).toEqual([]);
   });
 });
 
@@ -45,6 +48,7 @@ describe('validateSaveData', () => {
       upgrades: { hp: 2, speed: 1, jump: 0, manaRegen: 3, manaMax: 1 },
       unlockedTerrainIds: ['h3', 'spike'],
       loadout: ['h5', 'v3', 'u', 'h3', null, null, null, null],
+      clearedStageIds: ['stage01', 'stage02'],
     };
     const result = validateSaveData(raw);
     expect(result).toEqual(raw);
@@ -72,6 +76,19 @@ describe('validateSaveData', () => {
     expect(result.upgrades).toEqual({ hp: 0, speed: 0, jump: 0, manaRegen: 0, manaMax: 0 });
     expect(result.unlockedTerrainIds).toEqual(['h3']);
     expect(result.loadout).toEqual(defaultSaveData().loadout);
+    // clearedStageIds はこのフィクスチャに含まれていない(=既存セーブにフィールドが無いケースを兼ねる)。
+    // 例外を投げず既定値(空配列)にフォールバックする(後方互換)。
+    expect(result.clearedStageIds).toEqual([]);
+  });
+
+  it('clearedStageIds: 空文字でない文字列のみを残し、重複を除去する(unlockedTerrainIdsと同じ検証方針)', () => {
+    const result = validateSaveData({ clearedStageIds: ['stage01', 'stage02', 'stage01', '', 42, null] });
+    expect(result.clearedStageIds.sort()).toEqual(['stage01', 'stage02']);
+  });
+
+  it('clearedStageIds が配列でない場合は既定値(空配列)にフォールバックする', () => {
+    expect(validateSaveData({ clearedStageIds: 'not-an-array' }).clearedStageIds).toEqual([]);
+    expect(validateSaveData({ clearedStageIds: null }).clearedStageIds).toEqual([]);
   });
 
   it('collected の値は重複を除去し昇順にする。負数・非整数は取り除く', () => {
@@ -133,6 +150,7 @@ describe('loadSaveData / saveSaveData(localStorage経由の読み書き)', () =>
       upgrades: { hp: 1, speed: 0, jump: 2, manaRegen: 0, manaMax: 0 },
       unlockedTerrainIds: ['h3'],
       loadout: ['h5', 'v3', 'u', null, null, null, null, null],
+      clearedStageIds: ['stage01'],
     };
     saveSaveData(data);
     expect(loadSaveData()).toEqual(data);

@@ -44,6 +44,12 @@ export interface StageMeta {
   coinCount: number;
   /** 取得済みコインのindex集合(セーブデータ由来) */
   collectedCoinIndices: ReadonlySet<number>;
+  /**
+   * 選択可能か(クリア済み、または未クリアの最初の1つ)。falseならグレー表示+鍵マークにし、
+   * タップ判定はmain.ts側(isStageSelectableを直接使う)で既に無効化されているが、
+   * 見た目としてもロック中であることが分かるようにする。
+   */
+  selectable: boolean;
 }
 
 /**
@@ -85,14 +91,14 @@ function drawStageCoinRow(ctx: CanvasRenderingContext2D, rect: Rect, meta: Stage
   }
 }
 
-// 5ステージ(以上)でも画面(LOGICAL_HEIGHT=768)からはみ出さないよう、縦1列ではなく2列グリッドで
-// 配置する。1枠は480x90のときより大きく(560x100)なり、タッチでも押しやすいサイズを維持する。
+// 10ステージが画面(1280x768)に収まるよう、2列×5行のグリッドで配置する。
+// 5行分の高さ(170px開始〜768px)に収まるよう1枠は560x96(タッチ操作でも十分な高さ)にする。
 const STAGE_BOX_COLS = 2;
 const STAGE_BOX_W = 560;
-const STAGE_BOX_H = 100;
+const STAGE_BOX_H = 96;
 const STAGE_BOX_GAP_X = 40;
-const STAGE_BOX_GAP_Y = 20;
-const STAGE_BOX_TOP = 190;
+const STAGE_BOX_GAP_Y = 14;
+const STAGE_BOX_TOP = 170;
 
 export function stageSelectBoxRect(index: number): Rect {
   const col = index % STAGE_BOX_COLS;
@@ -120,6 +126,21 @@ export function drawStageSelectScreen(ctx: CanvasRenderingContext2D, stages: rea
 
   stages.forEach((stage, index) => {
     const rect = stageSelectBoxRect(index);
+
+    if (!stage.selectable) {
+      // ロック中: グレー表示+鍵マーク。名前・コイン列は表示しない(タップも無効、判定はmain.ts側)。
+      ctx.fillStyle = '#20242b';
+      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.strokeStyle = '#555a63';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(rect.x, rect.y, rect.w, rect.h);
+
+      ctx.fillStyle = '#7a7f88';
+      ctx.font = '22px sans-serif';
+      ctx.fillText('🔒 未解放', rect.x + rect.w / 2, rect.y + rect.h / 2);
+      return;
+    }
+
     ctx.fillStyle = '#1b2b3a';
     ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
     ctx.strokeStyle = '#f1c40f';

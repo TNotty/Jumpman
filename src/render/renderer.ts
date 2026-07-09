@@ -14,7 +14,7 @@ import type { GameState } from '../core/game';
 import { jumpmanAABB } from '../core/jumpman';
 import { checkErase, checkPlacement } from '../core/placement';
 import { BlockType, EnemyType, GameStatus } from '../core/types';
-import type { PaletteSlot, TerrainDefinition } from '../core/types';
+import type { CoinState, PaletteSlot, TerrainDefinition } from '../core/types';
 import type { AssetStore } from './assets';
 import type { CameraState } from './camera';
 import { drawSprite } from './sprites';
@@ -115,9 +115,25 @@ function drawFlags(
 }
 
 /**
- * コインを描画する。取得済み(永続取得済み・今回のセッションで新規取得済みのいずれか)は
- * 半透明にする(永続取得済みは重なってもwalletが増えないことの見た目上の合図、
- * 新規取得済みは「取った」ことのフィードバック)。軽い上下ふわふわアニメをanimTimeで付ける。
+ * コインの描画状態。
+ * - 'dim': このステージへの入場時点(createGameState呼び出し時点)で既にセーブデータ上
+ *   取得済みだった(permanentlyCollected)。再訪時の目印として半透明で描き続ける。
+ * - 'hidden': 今回のセッション中に新規取得した(collectedThisSession)。取得済みという状態は
+ *   即座に「消える」ことでフィードバックする(半透明表示はしない。死亡→チェックポイント復帰でも
+ *   collectedThisSessionはリセットされないため、再出現しない=消えたまま)。
+ * - 'normal': 未取得。通常表示。
+ * 純関数として切り出し、単体テスト可能にしている(coreに依存しないread-onlyなCoinState判定)。
+ */
+export function coinRenderState(coin: Pick<CoinState, 'permanentlyCollected' | 'collectedThisSession'>): 'dim' | 'hidden' | 'normal' {
+  if (coin.permanentlyCollected) return 'dim';
+  if (coin.collectedThisSession) return 'hidden';
+  return 'normal';
+}
+
+/**
+ * コインを描画する。'hidden'(今回のセッションで新規取得済み)は描画自体をスキップする
+ * (即座に消える)。'dim'(再訪時点で既に取得済み)は半透明で描き続ける。軽い上下ふわふわ
+ * アニメをanimTimeで付ける。
  */
 function drawCoins(
   ctx: CanvasRenderingContext2D,
@@ -127,12 +143,13 @@ function drawCoins(
   animTime: number,
 ): void {
   state.coins.forEach((coin, index) => {
-    const taken = coin.permanentlyCollected || coin.collectedThisSession;
+    const renderState = coinRenderState(coin);
+    if (renderState === 'hidden') return;
     const bob = Math.sin(animTime * 3 + index) * 3;
     const destX = coin.x * TILE_SIZE - camera.x;
     const destY = coin.y * TILE_SIZE - camera.y + bob;
     ctx.save();
-    ctx.globalAlpha = taken ? 0.35 : 1;
+    ctx.globalAlpha = renderState === 'dim' ? 0.35 : 1;
     drawSprite(ctx, assets, 'coin', 0, destX, destY, TILE_SIZE, TILE_SIZE);
     ctx.restore();
   });

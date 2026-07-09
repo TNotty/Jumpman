@@ -35,6 +35,12 @@ export interface SaveData {
   upgrades: SaveDataUpgrades;
   unlockedTerrainIds: string[];
   loadout: Loadout;
+  /**
+   * クリア済みステージIDの一覧(重複無し、順不同)。ステージ選択画面のアンロック判定
+   * (クリア済み + 未クリアの最初の1つだけ選択可能)に使う。既存セーブ(このフィールドが
+   * 追加される前)は空配列扱い(=stage01のみ選択可能から再開する、後方互換)。
+   */
+  clearedStageIds: string[];
 }
 
 const DEFAULT_UPGRADES: SaveDataUpgrades = { hp: 0, speed: 0, jump: 0, manaRegen: 0, manaMax: 0 };
@@ -49,6 +55,7 @@ export function defaultSaveData(): SaveData {
     upgrades: { ...DEFAULT_UPGRADES },
     unlockedTerrainIds: [],
     loadout: [...DEFAULT_LOADOUT],
+    clearedStageIds: [],
   };
 }
 
@@ -102,6 +109,11 @@ function validateUnlockedTerrainIds(value: unknown): string[] {
   return Array.from(new Set(ids));
 }
 
+/** clearedStageIds も unlockedTerrainIds と同じ形(空文字でない文字列配列、重複除去)なので検証ロジックを共有する */
+function validateClearedStageIds(value: unknown): string[] {
+  return validateUnlockedTerrainIds(value);
+}
+
 /**
  * 未検証の値(localStorageから読んだJSON.parse直後などの unknown)をセーブデータとして
  * 検証・正規化する。オブジェクトでない・フィールドが欠けている・型が違う等、壊れている場合でも
@@ -119,6 +131,7 @@ export function validateSaveData(data: unknown): SaveData {
     upgrades: validateUpgrades(data['upgrades']),
     unlockedTerrainIds: validateUnlockedTerrainIds(data['unlockedTerrainIds']),
     loadout: validateLoadout(data['loadout']),
+    clearedStageIds: validateClearedStageIds(data['clearedStageIds']),
   };
 }
 

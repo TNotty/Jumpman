@@ -14,8 +14,14 @@ import stage02Raw from '../../data/stages/stage02.json';
 import stage03Raw from '../../data/stages/stage03.json';
 import stage04Raw from '../../data/stages/stage04.json';
 import stage05Raw from '../../data/stages/stage05.json';
+import stage06Raw from '../../data/stages/stage06.json';
+import stage07Raw from '../../data/stages/stage07.json';
+import stage08Raw from '../../data/stages/stage08.json';
+import stage09Raw from '../../data/stages/stage09.json';
+import stage10Raw from '../../data/stages/stage10.json';
 import terrainMasterRaw from '../../data/terrainMaster.json';
 import { resolveLoadoutPalette } from './loadout';
+import { applyStageCleared, isStageSelectable } from './stageUnlock';
 import { AssetStore, loadAssets } from '../../render/assets';
 import { createCamera, updateCamera } from '../../render/camera';
 import type { CameraState } from '../../render/camera';
@@ -246,6 +252,11 @@ async function main(): Promise<void> {
       { id: 'stage03', data: requireValidStage(stage03Raw, 'stage03.json') },
       { id: 'stage04', data: requireValidStage(stage04Raw, 'stage04.json') },
       { id: 'stage05', data: requireValidStage(stage05Raw, 'stage05.json') },
+      { id: 'stage06', data: requireValidStage(stage06Raw, 'stage06.json') },
+      { id: 'stage07', data: requireValidStage(stage07Raw, 'stage07.json') },
+      { id: 'stage08', data: requireValidStage(stage08Raw, 'stage08.json') },
+      { id: 'stage09', data: requireValidStage(stage09Raw, 'stage09.json') },
+      { id: 'stage10', data: requireValidStage(stage10Raw, 'stage10.json') },
     ];
   } catch (error) {
     drawLoadingScreen(ctx, 'ステージデータが不正です');
@@ -353,6 +364,19 @@ async function main(): Promise<void> {
     saveSaveData(save);
   }
 
+  /**
+   * ゴール到達(GameStatus.Cleared)時にステージIDをclearedStageIdsへ追加して即保存する
+   * (未クリアなら追加、既にクリア済みなら何もしない=何度クリアしても増えない)。
+   * ?stage=draft(stageIndex=-1、マップエディタのテストプレイ)はステージ選択の対象外なので
+   * clearedStageIdsに記録しない。
+   */
+  function persistStageCleared(stageId: string, stageIndex: number): void {
+    if (stageIndex < 0) return;
+    if (save.clearedStageIds.includes(stageId)) return;
+    save = { ...save, clearedStageIds: applyStageCleared(save.clearedStageIds, stageId) };
+    saveSaveData(save);
+  }
+
   function hasNextStage(stageIndex: number): boolean {
     return stageIndex >= 0 && stageIndex + 1 < stages.length;
   }
@@ -417,12 +441,15 @@ async function main(): Promise<void> {
     }
 
     if (scene.kind === 'stageSelect') {
+      const stageIds = stages.map((s) => s.id);
       for (let i = 0; i < stages.length; i++) {
         const stage = stages[i];
-        if (stage && pointInRect(point.x, point.y, stageSelectBoxRect(i))) {
-          scene = startPlaying(stage.data, i);
-          return;
-        }
+        if (!stage) continue;
+        if (!pointInRect(point.x, point.y, stageSelectBoxRect(i))) continue;
+        // クリア済み + 未クリアの最初の1つだけ選択可能(それ以外はロック表示でタップ無効)。
+        if (!isStageSelectable(stage.id, stageIds, save.clearedStageIds)) return;
+        scene = startPlaying(stage.data, i);
+        return;
       }
       return;
     }
@@ -486,6 +513,7 @@ async function main(): Promise<void> {
         );
 
         if (nextGame.status === GameStatus.Cleared) {
+          persistStageCleared(nextGame.stage.id, scene.stageIndex);
           scene = { kind: 'clear', stageIndex: scene.stageIndex, game: nextGame, camera: nextCamera };
         } else {
           scene = { kind: 'playing', stageIndex: scene.stageIndex, stageData: scene.stageData, game: nextGame, camera: nextCamera };
@@ -500,12 +528,14 @@ async function main(): Promise<void> {
         return;
       }
       if (scene.kind === 'stageSelect') {
+        const stageIds = stages.map((s) => s.id);
         const metas: StageMeta[] = stages.map((s) => ({
           id: s.id,
           name: s.data.name,
           theme: s.data.theme,
           coinCount: s.data.coins.length,
           collectedCoinIndices: new Set(save.collected[s.id] ?? []),
+          selectable: isStageSelectable(s.id, stageIds, save.clearedStageIds),
         }));
         drawStageSelectScreen(ctx, metas);
         return;
