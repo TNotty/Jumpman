@@ -1,7 +1,7 @@
 // ゲーム本体のエントリポイント(index.html から読み込まれる)。
 // core(純ロジック)・render・input・platform を接続する唯一の場所。
 // シーン遷移(タイトル→ステージ選択→プレイ→クリア)はここで管理する(coreはシーンを知らない)。
-import { JUMPMAN_WIDTH, LOGICAL_HEIGHT, LOGICAL_WIDTH, TILE_SIZE } from '../../core/constants';
+import { GAME_AREA_HEIGHT, JUMPMAN_HEIGHT, JUMPMAN_WIDTH, LOGICAL_HEIGHT, LOGICAL_WIDTH, TILE_SIZE } from '../../core/constants';
 import { createGameState, update as updateGame } from '../../core/game';
 import type { GameState } from '../../core/game';
 import { GameStatus } from '../../core/types';
@@ -370,8 +370,19 @@ async function main(): Promise<void> {
       if (scene.kind === 'playing') {
         const nextGame = updateGame(scene.game, commands, dt);
         const stageWidthPx = nextGame.grid.width * TILE_SIZE;
+        const stageHeightPx = nextGame.grid.height * TILE_SIZE;
         const targetWorldX = (nextGame.jumpman.position.x + JUMPMAN_WIDTH / 2) * TILE_SIZE;
-        const nextCamera = updateCamera(scene.camera, targetWorldX, stageWidthPx, LOGICAL_WIDTH, dt);
+        const targetWorldY = (nextGame.jumpman.position.y + JUMPMAN_HEIGHT / 2) * TILE_SIZE;
+        const nextCamera = updateCamera(
+          scene.camera,
+          targetWorldX,
+          targetWorldY,
+          stageWidthPx,
+          stageHeightPx,
+          LOGICAL_WIDTH,
+          GAME_AREA_HEIGHT,
+          dt,
+        );
 
         if (nextGame.status === GameStatus.Cleared) {
           scene = { kind: 'clear', stageIndex: scene.stageIndex, game: nextGame, camera: nextCamera };
