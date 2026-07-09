@@ -50,6 +50,25 @@ function main(): void {
 
   const coordsEl = requireElement<HTMLDivElement>('coords');
   const paletteEl = requireElement<HTMLDivElement>('palette');
+
+  // 細幅画面ではパレットをDOM上でもドロワー(#side-panel)の外に出し、body直下に移す。
+  // fixed配置のドロワー内にfixedのパレットを残すと、モバイルブラウザによっては
+  // ヒットテストやスクロール可能範囲の計算が壊れ、横スクロールが途中までしか
+  // 進めない・末尾のボタンがタップできない不具合が出るため(実機報告あり)。
+  {
+    const palettePlaceholder = document.createComment('palette-slot');
+    paletteEl.before(palettePlaceholder);
+    const narrowQuery = window.matchMedia('(max-width: 768px)');
+    const relocatePalette = (): void => {
+      if (narrowQuery.matches) {
+        document.body.appendChild(paletteEl);
+      } else {
+        palettePlaceholder.parentNode?.insertBefore(paletteEl, palettePlaceholder.nextSibling);
+      }
+    };
+    relocatePalette();
+    narrowQuery.addEventListener('change', relocatePalette);
+  }
   const errorsEl = requireElement<HTMLDivElement>('errors');
   const autosaveStatusEl = requireElement<HTMLDivElement>('autosave-status');
 
