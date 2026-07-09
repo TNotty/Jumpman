@@ -155,6 +155,11 @@
         background: #262626;
         cursor: crosshair;
         display: block;
+        /* 表示サイズは常に#canvas-areaいっぱいに広げる(デスクトップ/モバイル共通)。
+           内部解像度(canvas.width/height)はJS側(src/app/editor/main.ts)がResizeObserverで
+           この表示サイズ×devicePixelRatioへ追従させる(editor.htmlと同じ方式)。 */
+        width: 100%;
+        height: 100%;
         /* タッチ操作(1本指ペイント/2本指パン・ズーム)をブラウザのジェスチャーに奪われないようにする */
         touch-action: none;
       }
@@ -317,10 +322,6 @@
       /* --- editor レスポンシブ(細幅画面): 右サイドパネルをドロワー化し、パレットは常時表示の
              キャンバス下部の横スクロールツールバーとして独立させる(editor.htmlと同じ) --------- */
       @media (max-width: 768px) {
-        body[data-mode='editor'] #editor-canvas {
-          width: 100%;
-          height: 100%;
-        }
         body[data-mode='editor'] #btn-menu-toggle {
           display: block;
           position: fixed;

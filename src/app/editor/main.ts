@@ -13,6 +13,8 @@ import { DRAFT_STAGE_STORAGE_KEY, EDIT_REQUEST_STORAGE_KEY } from '../game/main'
 import { EditorTool, TOOL_LABEL, TOOL_ORDER, blockTypeForTool, enemyTypeForTool, isPaintTool, toolFromKey } from './paletteTool';
 import type { Camera, PinchState, Point } from './pinchZoom';
 import { applyPinchZoom, pinchStateFromPoints } from './pinchZoom';
+import type { PixelSize } from './canvasResize';
+import { computeBackingStoreSize, needsResize } from './canvasResize';
 import {
   createBlankDraft,
   eraseAt,
@@ -96,13 +98,27 @@ function main(): void {
   let touchMode: 'none' | 'paint' | 'pinch' = 'none';
   let lastPinchState: PinchState | null = null;
 
+  // --- キャンバス解像度(表示サイズ追従) -----------------------------------------
+  // canvasの内部解像度(canvas.width/height)を表示サイズ(CSS px)× devicePixelRatioへ常に
+  // 追従させ、ctx.setTransform(dpr,...)を張ることで、以降の描画コード(render関数)はすべて
+  // CSS px基準の座標系で書ける(1:1ピクセル描画になるため、表示アスペクト比と内部解像度比が
+  // ズレて非等方スケールで歪む問題が構造的に発生しない。retinaでも滲まない)。
+  // cssSizeはrender()やタイル可視範囲計算がcanvas.width/heightの代わりに参照する「論理サイズ」。
+  // 実装(resizeCanvasToDisplaySize)はscheduleRender定義後にconstアロー関数式で定義する
+  // (render/scheduleRenderと同じ理由: function宣言だとctxのnullナローイングがクロージャ越しに
+  // 効かないため)。
+
+  let cssSize: PixelSize = { width: 1, height: 1 };
+
   // --- 座標変換 -----------------------------------------------------------
+  // rect.left/topもclientX/clientYもCSS px基準であり、render側もsetTransform適用後はCSS px
+  // 基準で描く(cssSizeを使う)ため、ここでの変換にdpr等によるスケール補正は不要になる
+  // (旧実装のscaleX=canvas.width/rect.widthは、canvas.widthが表示サイズと無関係な固定960の
+  // 頃の名残で、内部解像度を表示サイズに追従させた新方式ではその補正自体が不要かつ不正になる)。
 
   function toCanvasPointFromClient(clientX: number, clientY: number): { x: number; y: number } {
     const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+    return { x: clientX - rect.left, y: clientY - rect.top };
   }
 
   function toCanvasPoint(event: MouseEvent): { x: number; y: number } {
@@ -128,14 +144,14 @@ function main(): void {
 
   const render = (): void => {
     ctx.fillStyle = '#151515';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, cssSize.width, cssSize.height);
     if (!assets) return;
 
     const tilePx = TILE_SIZE * camera.zoom;
     const minTileX = Math.max(0, Math.floor(camera.x / TILE_SIZE));
-    const maxTileX = Math.min(draft.width - 1, Math.ceil((camera.x + canvas.width / camera.zoom) / TILE_SIZE));
+    const maxTileX = Math.min(draft.width - 1, Math.ceil((camera.x + cssSize.width / camera.zoom) / TILE_SIZE));
     const minTileY = Math.max(0, Math.floor(camera.y / TILE_SIZE));
-    const maxTileY = Math.min(draft.height - 1, Math.ceil((camera.y + canvas.height / camera.zoom) / TILE_SIZE));
+    const maxTileY = Math.min(draft.height - 1, Math.ceil((camera.y + cssSize.height / camera.zoom) / TILE_SIZE));
 
     for (let y = minTileY; y <= maxTileY; y++) {
       for (let x = minTileX; x <= maxTileX; x++) {
@@ -161,14 +177,14 @@ function main(): void {
         const p = tileToScreen(x, 0);
         ctx.beginPath();
         ctx.moveTo(p.x, 0);
-        ctx.lineTo(p.x, canvas.height);
+        ctx.lineTo(p.x, cssSize.height);
         ctx.stroke();
       }
       for (let y = minTileY; y <= maxTileY + 1; y++) {
         const p = tileToScreen(0, y);
         ctx.beginPath();
         ctx.moveTo(0, p.y);
-        ctx.lineTo(canvas.width, p.y);
+        ctx.lineTo(cssSize.width, p.y);
         ctx.stroke();
       }
     }
@@ -208,6 +224,37 @@ function main(): void {
       render();
     });
   };
+
+  const resizeCanvasToDisplaySize = (): void => {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const nextBackingSize = computeBackingStoreSize(rect.width, rect.height, dpr);
+    const currentBackingSize: PixelSize = { width: canvas.width, height: canvas.height };
+    if (needsResize(currentBackingSize, nextBackingSize)) {
+      // canvas.width/heightへの代入はcanvasの内容とtransformをリセットするため、実際に
+      // サイズが変わるときだけ行う(無条件に毎回代入するとresize→render→resizeのループや
+      // 無駄な再確保の原因になり得る)。
+      canvas.width = nextBackingSize.width;
+      canvas.height = nextBackingSize.height;
+    }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cssSize = { width: rect.width, height: rect.height };
+    scheduleRender();
+  };
+
+  // canvasの表示サイズ(#canvas-areaのflexサイズ・レスポンシブブレークポイント・端末回転等で
+  // 変化しうる)を監視し、変化のたびにbacking store解像度を追従させる。ResizeObserverは
+  // observe()呼び出し直後にも1回発火する仕様のため、これで初回サイズも設定される
+  // (念のため明示的にも1回呼んでおく。needsResizeにより二重実行しても実質的に無害)。
+  if (typeof ResizeObserver !== 'undefined') {
+    const resizeObserver = new ResizeObserver(() => resizeCanvasToDisplaySize());
+    resizeObserver.observe(canvas);
+  } else {
+    // ResizeObserver非対応環境向けフォールバック
+    window.addEventListener('resize', resizeCanvasToDisplaySize);
+    window.addEventListener('orientationchange', resizeCanvasToDisplaySize);
+  }
+  resizeCanvasToDisplaySize();
 
   // --- ドラフト操作 -----------------------------------------------------------
 
