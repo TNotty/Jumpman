@@ -17,7 +17,14 @@
         display: flex;
         justify-content: center;
         align-items: center;
-        min-height: 100vh;
+        width: 100vw;
+        /* 100vhをフォールバックとして先に書き、dvh対応ブラウザでは動的ビューポート高さ(100dvh)で
+           上書きする。モバイルブラウザのアドレスバー分だけ実際の可視領域より100vhが大きくなる問題
+           (横画面でパレットが画面下に隠れる原因)を回避する。 */
+        height: 100vh;
+        height: 100dvh;
+        /* はみ出しても隠す(html,bodyはスクロール不可のため、隙間なく収まらない場合の保険) */
+        overflow: hidden;
         /* スマートフォンでのタッチスクロール・ピンチズーム・長押しメニュー等を抑止する */
         touch-action: none;
         overscroll-behavior: none;
@@ -25,10 +32,19 @@
         user-select: none;
       }
       #game-canvas {
+        display: block;
         image-rendering: pixelated;
         background: #000;
-        max-width: 100%;
+        /* 幅・高さ両方の制約下でアスペクト比(1280:768)を保って収まるようフィットさせる
+           (縦画面・横画面どちらでもパレットを含む全体が必ず画面内に収まる=レターボックス表示)。
+           width/heightをautoにし、max-width/max-height(dvhフォールバック込み)+aspect-ratioで
+           両方向の制約のうち厳しい方に合わせて縮小する。 */
+        width: auto;
+        height: auto;
+        max-width: 100vw;
         max-height: 100vh;
+        max-height: 100dvh;
+        aspect-ratio: 1280 / 768;
         /* タッチ操作(タップ配置/消去)をブラウザのジェスチャー(スクロール/ズーム)に奪われないようにする */
         touch-action: none;
       }

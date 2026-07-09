@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { TileGrid } from './grid';
-import { applyErase, applyPlacement, checkErase, checkPlacement, expandTerrainCells } from './placement';
+import { anchoredBaseTileX, applyErase, applyPlacement, checkErase, checkPlacement, expandTerrainCells } from './placement';
 import { BlockType, EnemyType } from './types';
 import type { AABB, EnemyState, ManaState, TerrainDefinition } from './types';
 
@@ -32,6 +32,30 @@ describe('expandTerrainCells', () => {
     expect(cells).toHaveLength(5); // NNN + N.N の N は5個
     expect(cells.find((c) => c.x === 11 && c.y === 11)).toBeUndefined(); // 穴の位置
     expect(cells.every((c) => c.type === BlockType.Normal)).toBe(true);
+  });
+});
+
+describe('anchoredBaseTileX', () => {
+  it("'right'(指の右に生成): タップ位置がそのまま基準点(左端)になる。従来のマウスと同じ挙動", () => {
+    expect(anchoredBaseTileX(20, 5, 'right')).toBe(20);
+    expect(anchoredBaseTileX(20, 1, 'right')).toBe(20);
+  });
+
+  it("'left'(指の左に生成): 幅5の地形はタップ位置が右端になるよう基準点が4マス左にずれる", () => {
+    expect(anchoredBaseTileX(20, 5, 'left')).toBe(16); // 16..20の5マス、右端が20(タップ位置)
+  });
+
+  it("幅1(消去スロット相当)は 'left'/'right' どちらでもオフセット0で同じ結果になる", () => {
+    expect(anchoredBaseTileX(20, 1, 'left')).toBe(20);
+    expect(anchoredBaseTileX(20, 1, 'right')).toBe(20);
+  });
+
+  it('グリッド左端付近など負の座標になり得る場合でもクランプせずそのまま返す(範囲外判定はplacement側に委ねる)', () => {
+    expect(anchoredBaseTileX(2, 5, 'left')).toBe(-2);
+  });
+
+  it('地形幅が0(不正/未定義)でも最低幅1として扱いオフセット0になる', () => {
+    expect(anchoredBaseTileX(20, 0, 'left')).toBe(20);
   });
 });
 

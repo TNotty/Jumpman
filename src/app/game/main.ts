@@ -112,6 +112,59 @@ function createDevOverlay(): DevOverlayHandles {
   return { titleLinksEl, playingButton, sync };
 }
 
+const GAME_UI_BUTTON_STYLE =
+  'background:rgba(0,0,0,0.55); color:#fff; padding:6px 10px; border-radius:4px; ' +
+  'border:1px solid rgba(255,255,255,0.35); font-family:sans-serif; font-size:12px; cursor:pointer; pointer-events:auto;';
+
+/**
+ * 常時表示の製品UI(開発限定ではない): 全画面切替ボタン・タッチ生成アンカー(指の左右どちらに
+ * 生成するか)切替ボタン。canvas内描画ではなくDOM要素にする(devOverlayと同じ理由:
+ * canvasのヒットテストを複雑化させない)。画面左上隅に配置し、devOverlay(右上)やパレット(下部)と
+ * 重ならないようにする。
+ */
+function createGameUiOverlay(input: InputManager): void {
+  const container = document.createElement('div');
+  container.style.cssText =
+    'position:fixed; top:8px; left:8px; z-index:1000; display:flex; flex-direction:column; ' +
+    'align-items:flex-start; gap:4px; pointer-events:none;';
+
+  // Fullscreen API非対応環境(iOS Safari等)ではボタン自体を出さない
+  // (document.documentElement.requestFullscreen の存在有無で判定)。
+  if (document.documentElement.requestFullscreen) {
+    const fullscreenButton = document.createElement('button');
+    fullscreenButton.type = 'button';
+    fullscreenButton.textContent = '全画面';
+    fullscreenButton.style.cssText = GAME_UI_BUTTON_STYLE;
+    fullscreenButton.addEventListener('click', () => {
+      if (document.fullscreenElement) {
+        void document.exitFullscreen();
+      } else {
+        void document.documentElement.requestFullscreen();
+      }
+    });
+    document.addEventListener('fullscreenchange', () => {
+      fullscreenButton.textContent = document.fullscreenElement ? '全画面解除' : '全画面';
+    });
+    container.appendChild(fullscreenButton);
+  }
+
+  // タッチ時の生成基準(指の左/右どちらに生成するか)の切替。設定はInputManager経由でlocalStorageへ永続化される。
+  const anchorButton = document.createElement('button');
+  anchorButton.type = 'button';
+  anchorButton.style.cssText = GAME_UI_BUTTON_STYLE;
+  const syncAnchorLabel = (): void => {
+    anchorButton.textContent = input.getTouchAnchorSide() === 'left' ? '生成←指' : '指→生成';
+  };
+  syncAnchorLabel();
+  anchorButton.addEventListener('click', () => {
+    input.toggleTouchAnchorSide();
+    syncAnchorLabel();
+  });
+  container.appendChild(anchorButton);
+
+  document.body.appendChild(container);
+}
+
 function getCanvas(): HTMLCanvasElement {
   const canvas = document.getElementById('game-canvas');
   if (!(canvas instanceof HTMLCanvasElement)) {
@@ -230,6 +283,9 @@ async function main(): Promise<void> {
     () => (scene.kind === 'playing' ? scene.camera : createCamera()),
     terrainMaster,
   );
+
+  // 常時表示の製品UI(全画面切替・タッチ生成アンカー切替)。devOverlayと異なりDEV限定ではない。
+  createGameUiOverlay(input);
 
   // 開発限定UI(タイトルのエディタリンク・プレイ中の「エディタで開く」ボタン)。
   // import.meta.env.DEV は `vite build` の本番ビルドでは静的に false になるため、

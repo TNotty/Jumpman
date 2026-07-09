@@ -6,19 +6,37 @@
 // 関わらず常時有効。
 // 座標変換はマウス/タッチで共通化(getBoundingClientRectベース)。タッチはpreventDefaultで
 // 合成マウスイベント・スクロール・ダブルタップズームを抑止する。
+// タッチ操作のみ、指で生成予測が隠れないよう配置基準をタッチ位置からずらせる(touchAnchorSide)。
+// マウスは常に従来どおりカーソル位置=地形の左上(anchoredBaseTileXの'right'相当)のまま変更しない。
 import { GAME_AREA_HEIGHT, PALETTE_SLOT_COUNT, TILE_SIZE } from '../core/constants';
 import type { Command } from '../core/commands';
+import { anchoredBaseTileX } from '../core/placement';
+import type { TouchAnchorSide } from '../core/placement';
 import type { PaletteSlot, TerrainDefinition } from '../core/types';
 import type { CameraState } from '../render/camera';
 import { eraserSlotRect, paletteSlotRect } from '../render/renderer';
+import { loadJSON, saveJSON } from '../platform/storage';
 
 type Point = { x: number; y: number };
+type InputSource = 'mouse' | 'touch';
+
+/** 指の左右どちらに生成するかのユーザー設定をlocalStorageへ永続化するキー */
+const TOUCH_ANCHOR_STORAGE_KEY = 'jumpman:touchAnchorSide';
+/** 既定は「指の左に生成」(タップ位置=地形の右端)。指で生成予測が隠れる問題への対処として既定値にする */
+const DEFAULT_TOUCH_ANCHOR_SIDE: TouchAnchorSide = 'left';
+
+function loadTouchAnchorSide(): TouchAnchorSide {
+  const raw = loadJSON<TouchAnchorSide>(TOUCH_ANCHOR_STORAGE_KEY);
+  return raw === 'left' || raw === 'right' ? raw : DEFAULT_TOUCH_ANCHOR_SIDE;
+}
 
 export class InputManager {
   private queue: Command[] = [];
   private selectedSlot: PaletteSlot = 0;
   private lastPoint: Point | null = null;
+  private lastInputSource: InputSource | null = null;
   private activeTouchId: number | null = null;
+  private touchAnchorSide: TouchAnchorSide = loadTouchAnchorSide();
 
   private readonly canvas: HTMLCanvasElement;
   private readonly getCamera: () => CameraState;
@@ -62,17 +80,44 @@ export class InputManager {
     return this.selectedSlot;
   }
 
-  /** 現在のマウス/タッチ位置に対応するワールドタイル座標(ゲーム領域内のときのみ)。配置プレビュー用 */
+  /** 指の左右どちらに生成するか(タッチ操作のみに影響。マウスは常に従来どおり) */
+  getTouchAnchorSide(): TouchAnchorSide {
+    return this.touchAnchorSide;
+  }
+
+  /** 指の左/右生成をトグルし、localStorageへ永続化する。戻り値は切替後の値(UIボタンのラベル更新用) */
+  toggleTouchAnchorSide(): TouchAnchorSide {
+    this.touchAnchorSide = this.touchAnchorSide === 'left' ? 'right' : 'left';
+    saveJSON(TOUCH_ANCHOR_STORAGE_KEY, this.touchAnchorSide);
+    return this.touchAnchorSide;
+  }
+
+  /** 現在のマウス/タッチ位置に対応するワールドタイル座標(ゲーム領域内のときのみ)。配置プレビュー用。
+   * タッチ操作中はtouchAnchorSideを適用した「配置基準タイル」を返す(実際の生成/消去と一致させるため)。 */
   getHoverTile(): { x: number; y: number } | null {
     if (!this.lastPoint || this.lastPoint.y >= GAME_AREA_HEIGHT) return null;
-    const camera = this.getCamera();
-    return {
-      x: Math.floor((this.lastPoint.x + camera.x) / TILE_SIZE),
-      y: Math.floor((this.lastPoint.y + camera.y) / TILE_SIZE),
-    };
+    return this.computeTileFromPoint(this.lastPoint, this.lastInputSource === 'touch');
   }
 
   // --- 座標変換(マウス/タッチ共通) -------------------------------------------------
+
+  /** 選択中スロットの地形幅(タイル数)。消去スロット/未選択時は常に1(アンカーのオフセットが0になる) */
+  private currentTerrainWidth(): number {
+    if (this.selectedSlot === 'eraser') return 1;
+    const terrain = this.terrainMaster[this.selectedSlot];
+    return terrain?.grid[0]?.length ?? 1;
+  }
+
+  /** キャンバス座標→ワールドタイル座標。applyTouchAnchor=trueのときのみ touchAnchorSide を適用する */
+  private computeTileFromPoint(point: Point, applyTouchAnchor: boolean): Point {
+    const camera = this.getCamera();
+    const rawTileX = Math.floor((point.x + camera.x) / TILE_SIZE);
+    const tileY = Math.floor((point.y + camera.y) / TILE_SIZE);
+    const tileX = applyTouchAnchor
+      ? anchoredBaseTileX(rawTileX, this.currentTerrainWidth(), this.touchAnchorSide)
+      : rawTileX;
+    return { x: tileX, y: tileY };
+  }
 
   private toCanvasPointFromClient(clientX: number, clientY: number): Point {
     const rect = this.canvas.getBoundingClientRect();
@@ -165,30 +210,30 @@ export class InputManager {
   }
 
   /** ゲーム領域での主操作(左クリック/タップ)。消去スロット選択中でも常にplaceTerrainを発行し、
-   * terrainIdの解釈(地形生成か消去か)はgame.ts側がselectedSlotを見て判断する。 */
-  private handlePrimaryAction(point: Point): void {
+   * terrainIdの解釈(地形生成か消去か)はgame.ts側がselectedSlotを見て判断する。
+   * applyTouchAnchor=true(タッチ操作)のときのみ touchAnchorSide による基準タイルのずらしを適用する。
+   * マウス操作(applyTouchAnchor=false)は常にカーソル位置=地形の左上のまま変更しない。 */
+  private handlePrimaryAction(point: Point, applyTouchAnchor: boolean): void {
     if (this.selectedSlot !== 'eraser') {
       const terrain = this.terrainMaster[this.selectedSlot];
       if (!terrain || !terrain.unlocked) return;
     }
 
-    const camera = this.getCamera();
-    const tileX = Math.floor((point.x + camera.x) / TILE_SIZE);
-    const tileY = Math.floor((point.y + camera.y) / TILE_SIZE);
+    const { x: tileX, y: tileY } = this.computeTileFromPoint(point, applyTouchAnchor);
     const terrainId = this.selectedSlot === 'eraser' ? '' : (this.terrainMaster[this.selectedSlot]?.id ?? '');
     this.queue.push({ type: 'placeTerrain', terrainId, x: tileX, y: tileY });
   }
 
+  /** 右クリックの消去(常時有効・選択中スロットに関わらず)。マウス専用のためアンカーは適用しない */
   private queueEraseAt(point: Point): void {
-    const camera = this.getCamera();
-    const tileX = Math.floor((point.x + camera.x) / TILE_SIZE);
-    const tileY = Math.floor((point.y + camera.y) / TILE_SIZE);
+    const { x: tileX, y: tileY } = this.computeTileFromPoint(point, false);
     this.queue.push({ type: 'eraseTile', x: tileX, y: tileY });
   }
 
   // --- マウス操作 -------------------------------------------------------------
 
   private handleMouseMove = (event: MouseEvent): void => {
+    this.lastInputSource = 'mouse';
     this.lastPoint = this.toCanvasPoint(event);
   };
 
@@ -198,6 +243,7 @@ export class InputManager {
 
   private handleMouseDown = (event: MouseEvent): void => {
     if (event.button !== 0) return;
+    this.lastInputSource = 'mouse';
     const point = this.toCanvasPoint(event);
 
     if (point.y >= GAME_AREA_HEIGHT) {
@@ -205,7 +251,7 @@ export class InputManager {
       return;
     }
 
-    this.handlePrimaryAction(point);
+    this.handlePrimaryAction(point, false);
   };
 
   private handleContextMenu = (event: MouseEvent): void => {
@@ -224,6 +270,7 @@ export class InputManager {
     const touch = event.changedTouches.item(0);
     if (!touch) return;
     this.activeTouchId = touch.identifier;
+    this.lastInputSource = 'touch';
     this.lastPoint = this.toCanvasPointFromClient(touch.clientX, touch.clientY);
   };
 
@@ -231,6 +278,7 @@ export class InputManager {
     event.preventDefault();
     const touch = this.findTouch(event.touches);
     if (!touch) return;
+    this.lastInputSource = 'touch';
     this.lastPoint = this.toCanvasPointFromClient(touch.clientX, touch.clientY);
   };
 
@@ -247,8 +295,9 @@ export class InputManager {
     if (point.y >= GAME_AREA_HEIGHT) {
       this.handlePaletteTap(point);
     } else {
-      // 指を離した位置で生成/消去する(タッチ中の移動はプレビューのみ駆動する)
-      this.handlePrimaryAction(point);
+      // 指を離した位置で生成/消去する(タッチ中の移動はプレビューのみ駆動する)。
+      // タッチ操作なのでtouchAnchorSideを適用する(getHoverTile()のプレビューと必ず一致させる)。
+      this.handlePrimaryAction(point, true);
     }
     this.lastPoint = null;
   };

@@ -23,6 +23,28 @@ export interface PlacementCheck {
   cellsToPlace: PlacementCell[];
 }
 
+/**
+ * タッチ操作時、指で生成予測が隠れないようにする配置基準アンカー。
+ * 'right': 指の右に生成する(タップ位置のマス = 地形の左上/左端。マウス操作と同じ挙動)。
+ * 'left' : 指の左に生成する(タップ位置のマス = 地形の右端になるよう基準点を左にずらす)。
+ */
+export type TouchAnchorSide = 'left' | 'right';
+
+/**
+ * タッチ位置のタイルX座標と選択中地形の幅・アンカー方向から、配置基準タイルX座標(左上/左端)を計算する。
+ * 純関数(DOM非依存)。マウス操作は常に 'right' 相当(基準点=タップ位置)を使うためこの関数を呼ばない。
+ * 幅1(消去スロット等)はどちらのアンカーでもオフセット0で結果は変わらない。
+ * グリッド範囲外に出る場合のクランプは行わない(placement側のcheckPlacement/checkEraseの
+ * 範囲外スキップ/no_effect判定に委ねる)。
+ */
+export function anchoredBaseTileX(tapTileX: number, terrainWidth: number, anchorSide: TouchAnchorSide): number {
+  if (anchorSide === 'left') {
+    const width = Math.max(1, terrainWidth);
+    return tapTileX - (width - 1);
+  }
+  return tapTileX;
+}
+
 /** 地形マスタの形状グリッドを、基準点(左上)からのワールド座標セル配列に展開する('.'は形状に含まれない) */
 export function expandTerrainCells(terrain: TerrainDefinition, baseX: number, baseY: number): PlacementCell[] {
   const cells: PlacementCell[] = [];

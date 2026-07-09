@@ -28,7 +28,12 @@
         display: flex;
         justify-content: center;
         align-items: center;
-        min-height: 100vh;
+        width: 100vw;
+        /* 100vhをフォールバックとして先に書き、dvh対応ブラウザでは動的ビューポート高さで上書きする
+           (モバイルブラウザのアドレスバー分の誤差で横画面時にパレットが隠れる問題を回避)。 */
+        height: 100vh;
+        height: 100dvh;
+        overflow: hidden;
         /* スマートフォンでのタッチスクロール・ピンチズーム・長押しメニュー等を抑止する */
         touch-action: none;
         overscroll-behavior: none;
@@ -36,10 +41,16 @@
         user-select: none;
       }
       #game-canvas {
+        display: block;
         image-rendering: pixelated;
         background: #000;
-        max-width: 100%;
+        /* 幅・高さ両方の制約下でアスペクト比(1280:768)維持フィット+レターボックス(index.htmlと同じ) */
+        width: auto;
+        height: auto;
+        max-width: 100vw;
         max-height: 100vh;
+        max-height: 100dvh;
+        aspect-ratio: 1280 / 768;
         /* タッチ操作(タップ配置/消去)をブラウザのジェスチャー(スクロール/ズーム)に奪われないようにする */
         touch-action: none;
       }
