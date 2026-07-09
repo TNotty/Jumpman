@@ -60,6 +60,13 @@
       body[data-mode='terrain'] {
         background: #181818;
         height: 100%;
+        overscroll-behavior: none;
+      }
+      /* デスクトップ幅ではモバイル導線(ドロワー開閉ボタン等)は常に非表示 */
+      body[data-mode='editor'] #btn-menu-toggle,
+      body[data-mode='editor'] #drawer-backdrop,
+      body[data-mode='editor'] #btn-drawer-close {
+        display: none;
       }
       body[data-mode='editor'] h1,
       body[data-mode='terrain'] h1 {
@@ -136,6 +143,7 @@
       body[data-mode='editor'] #app {
         display: flex;
         height: 100vh;
+        height: 100dvh;
       }
       body[data-mode='editor'] #canvas-area {
         position: relative;
@@ -147,6 +155,8 @@
         background: #262626;
         cursor: crosshair;
         display: block;
+        /* タッチ操作(1本指ペイント/2本指パン・ズーム)をブラウザのジェスチャーに奪われないようにする */
+        touch-action: none;
       }
       body[data-mode='editor'] #coords {
         position: absolute;
@@ -219,6 +229,7 @@
           'list edit preview'
           'list edit actions';
         height: 100vh;
+        height: 100dvh;
       }
       body[data-mode='terrain'] #list-panel {
         grid-area: list;
@@ -274,6 +285,8 @@
         border: 1px solid #444;
         cursor: pointer;
         align-self: flex-start;
+        /* タッチでのタップ/ドラッグ塗りをブラウザのスクロール/ズームに奪われないようにする */
+        touch-action: none;
       }
       body[data-mode='terrain'] #preview-panel {
         grid-area: preview;
@@ -300,6 +313,148 @@
         gap: 6px;
         flex-wrap: wrap;
       }
+
+      /* --- editor レスポンシブ(細幅画面): 右サイドパネルをドロワー化し、パレットは常時表示の
+             キャンバス下部の横スクロールツールバーとして独立させる(editor.htmlと同じ) --------- */
+      @media (max-width: 768px) {
+        body[data-mode='editor'] #editor-canvas {
+          width: 100%;
+          height: 100%;
+        }
+        body[data-mode='editor'] #btn-menu-toggle {
+          display: block;
+          position: fixed;
+          top: 8px;
+          right: 8px;
+          z-index: 220;
+          min-width: 44px;
+          min-height: 44px;
+          font-size: 14px;
+          background: rgba(20, 20, 20, 0.85);
+        }
+        body[data-mode='editor'] #drawer-backdrop {
+          display: block;
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.5);
+          z-index: 190;
+          opacity: 0;
+          pointer-events: none;
+          transition: opacity 0.2s ease;
+        }
+        body[data-mode='editor'] #drawer-backdrop.open {
+          opacity: 1;
+          pointer-events: auto;
+        }
+        body[data-mode='editor'] #side-panel {
+          position: fixed;
+          top: 0;
+          right: -85vw;
+          width: 85vw;
+          max-width: 360px;
+          height: 100%;
+          height: 100dvh;
+          z-index: 200;
+          box-shadow: -4px 0 16px rgba(0, 0, 0, 0.5);
+          transition: right 0.25s ease;
+          padding-bottom: 96px;
+        }
+        body[data-mode='editor'] #side-panel.open {
+          right: 0;
+        }
+        body[data-mode='editor'] #btn-drawer-close {
+          display: block;
+          align-self: flex-end;
+          min-width: 44px;
+          min-height: 44px;
+        }
+        body[data-mode='editor'] #palette {
+          position: fixed;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          z-index: 250;
+          display: flex;
+          flex-direction: row;
+          grid-template-columns: unset;
+          gap: 6px;
+          padding: 8px;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          background: rgba(16, 16, 16, 0.95);
+          border-top: 1px solid #444;
+        }
+        body[data-mode='editor'] #palette .tool-btn {
+          flex: 0 0 auto;
+          min-width: 64px;
+          min-height: 44px;
+          white-space: nowrap;
+        }
+      }
+
+      /* --- terrain レスポンシブ(細幅画面): list/edit/preview/actions を縦積みにし、
+             リストは横スクロールのカード列にする。ボタン/フォームはタッチしやすい大きさにする ------ */
+      @media (max-width: 768px) {
+        body[data-mode='terrain'] #app {
+          display: flex;
+          flex-direction: column;
+          height: auto;
+          min-height: 100vh;
+          min-height: 100dvh;
+          overflow-y: auto;
+        }
+        body[data-mode='terrain'] #list-panel {
+          border-right: none;
+          border-bottom: 1px solid #444;
+          flex: none;
+        }
+        body[data-mode='terrain'] #terrain-list {
+          flex-direction: row;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          gap: 8px;
+          padding-bottom: 4px;
+        }
+        body[data-mode='terrain'] .terrain-item {
+          flex: 0 0 auto;
+          min-width: 120px;
+          min-height: 44px;
+        }
+        body[data-mode='terrain'] #edit-panel {
+          border-right: none;
+          border-bottom: 1px solid #444;
+          flex: none;
+        }
+        body[data-mode='terrain'] #grid-canvas {
+          width: 100%;
+          max-width: 320px;
+          height: auto;
+          aspect-ratio: 1 / 1;
+        }
+        body[data-mode='terrain'] #preview-panel {
+          flex: none;
+        }
+        body[data-mode='terrain'] #actions-panel {
+          flex: none;
+        }
+        body[data-mode='terrain'] button {
+          min-height: 44px;
+          padding: 8px 12px;
+          font-size: 13px;
+        }
+        body[data-mode='terrain'] #grid-palette button {
+          min-width: 56px;
+        }
+        body[data-mode='terrain'] #list-actions button,
+        body[data-mode='terrain'] #actions-row button {
+          flex: 1 1 auto;
+        }
+        body[data-mode='terrain'] form input[type='text'],
+        body[data-mode='terrain'] form input[type='number'] {
+          min-height: 40px;
+          font-size: 14px;
+        }
+      }
     </style>
   </head>
   <body>
@@ -315,9 +470,15 @@
         <div id="canvas-area">
           <canvas id="editor-canvas" width="960" height="640"></canvas>
           <div id="coords">x: -, y: -</div>
-          <div id="hint">左ドラッグ: 配置 / 右ドラッグ: 消去<br />Space+ドラッグ or 中ボタン: パン / ホイール: ズーム</div>
+          <div id="hint">
+            左ドラッグ: 配置 / 右ドラッグ: 消去<br />Space+ドラッグ or 中ボタン: パン / ホイール: ズーム<br />スマホ:
+            1本指で配置 / 2本指でパン・ピンチズーム
+          </div>
         </div>
+        <button id="btn-menu-toggle" type="button">☰ メニュー</button>
+        <div id="drawer-backdrop"></div>
         <div id="side-panel">
+          <button id="btn-drawer-close" type="button">✕ 閉じる</button>
           <h1>マップエディタ</h1>
 
           <h2>パレット(数字キー1-9)</h2>

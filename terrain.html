@@ -2,7 +2,10 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
     <title>ジャンプマン - 地形マスタエディタ</title>
     <style>
       :root {
@@ -19,6 +22,7 @@
         color: #eee;
         font-family: sans-serif;
         height: 100%;
+        overscroll-behavior: none;
       }
       #app {
         display: grid;
@@ -28,6 +32,7 @@
           'list edit preview'
           'list edit actions';
         height: 100vh;
+        height: 100dvh;
       }
       h1 {
         font-size: 16px;
@@ -118,6 +123,8 @@
         border: 1px solid #444;
         cursor: pointer;
         align-self: flex-start;
+        /* タッチでのタップ/ドラッグ塗りをブラウザのスクロール/ズームに奪われないようにする */
+        touch-action: none;
       }
       #preview-panel {
         grid-area: preview;
@@ -166,6 +173,70 @@
         color: #888;
         font-size: 11px;
       }
+
+      /* --- レスポンシブ(細幅画面): list/edit/preview/actions を縦積みにし、
+             リストは横スクロールのカード列にする。ボタン/フォームはタッチしやすい大きさにする ------ */
+      @media (max-width: 768px) {
+        #app {
+          display: flex;
+          flex-direction: column;
+          height: auto;
+          min-height: 100vh;
+          min-height: 100dvh;
+          overflow-y: auto;
+        }
+        #list-panel {
+          border-right: none;
+          border-bottom: 1px solid #444;
+          flex: none;
+        }
+        #terrain-list {
+          flex-direction: row;
+          overflow-x: auto;
+          -webkit-overflow-scrolling: touch;
+          gap: 8px;
+          padding-bottom: 4px;
+        }
+        .terrain-item {
+          flex: 0 0 auto;
+          min-width: 120px;
+          min-height: 44px;
+        }
+        #edit-panel {
+          border-right: none;
+          border-bottom: 1px solid #444;
+          flex: none;
+        }
+        #grid-canvas {
+          width: 100%;
+          max-width: 320px;
+          height: auto;
+          aspect-ratio: 1 / 1;
+        }
+        #preview-panel {
+          flex: none;
+        }
+        #actions-panel {
+          flex: none;
+        }
+        button {
+          min-height: 44px;
+          padding: 8px 12px;
+          font-size: 13px;
+        }
+        #grid-palette button {
+          min-width: 56px;
+        }
+        #list-actions button,
+        #actions-row button {
+          flex: 1 1 auto;
+        }
+        form input[type='text'],
+        form input[type='number'] {
+          min-height: 40px;
+          font-size: 14px;
+        }
+      }
     </style>
   </head>
   <body>
@@ -196,7 +267,7 @@
             <label>グリッド高さ(最大8)<input type="number" id="field-grid-height" min="1" max="8" /></label>
           </div>
         </form>
-        <h2>グリッド編集(クリックで塗る)</h2>
+        <h2>グリッド編集(クリック/タップ・ドラッグで塗る)</h2>
         <div id="grid-palette"></div>
         <canvas id="grid-canvas" width="320" height="320"></canvas>
       </div>

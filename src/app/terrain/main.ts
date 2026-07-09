@@ -307,6 +307,38 @@ function main(): void {
     if (isPaintingGrid) paintGridCellAt(event.clientX, event.clientY);
   });
 
+  // タッチでのタップ/ドラッグ塗り(8×8グリッド編集はパン/ズーム不要のため単指のみで完結する)。
+  // touchstart/move/end/cancelすべてでpreventDefaultし、スクロール・ダブルタップズーム・
+  // 合成マウスイベントの二重発火を防ぐ(マップエディタ/ゲーム側と同じ方式)。
+  gridCanvas.addEventListener(
+    'touchstart',
+    (event) => {
+      event.preventDefault();
+      const touch = event.changedTouches.item(0);
+      if (!touch) return;
+      isPaintingGrid = true;
+      paintGridCellAt(touch.clientX, touch.clientY);
+    },
+    { passive: false },
+  );
+  gridCanvas.addEventListener(
+    'touchmove',
+    (event) => {
+      event.preventDefault();
+      if (!isPaintingGrid) return;
+      const touch = event.touches.item(0);
+      if (!touch) return;
+      paintGridCellAt(touch.clientX, touch.clientY);
+    },
+    { passive: false },
+  );
+  function endGridTouch(event: TouchEvent): void {
+    event.preventDefault();
+    isPaintingGrid = false;
+  }
+  gridCanvas.addEventListener('touchend', endGridTouch, { passive: false });
+  gridCanvas.addEventListener('touchcancel', endGridTouch, { passive: false });
+
   // --- ファイル操作 -------------------------------------------------------------
 
   function setMaster(next: TerrainMaster): void {

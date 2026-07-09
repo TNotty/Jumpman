@@ -11,6 +11,8 @@ import { openGameDraft } from '../../platform/navigation';
 import { downloadJSON, loadJSON, readJSONFile, removeJSON, saveJSON } from '../../platform/storage';
 import { DRAFT_STAGE_STORAGE_KEY, EDIT_REQUEST_STORAGE_KEY } from '../game/main';
 import { EditorTool, TOOL_LABEL, TOOL_ORDER, blockTypeForTool, enemyTypeForTool, isPaintTool, toolFromKey } from './paletteTool';
+import type { Camera, PinchState, Point } from './pinchZoom';
+import { applyPinchZoom, pinchStateFromPoints } from './pinchZoom';
 import {
   createBlankDraft,
   eraseAt,
@@ -68,12 +70,18 @@ function main(): void {
   const btnLoadSample2 = requireElement<HTMLButtonElement>('btn-load-sample2');
   const btnTestplay = requireElement<HTMLButtonElement>('btn-testplay');
 
+  // スマホ向けドロワー導線(デスクトップ幅ではCSSで非表示。要素自体は常にDOMに存在する)。
+  const btnMenuToggle = requireElement<HTMLButtonElement>('btn-menu-toggle');
+  const btnDrawerClose = requireElement<HTMLButtonElement>('btn-drawer-close');
+  const drawerBackdrop = requireElement<HTMLDivElement>('drawer-backdrop');
+  const sidePanel = requireElement<HTMLDivElement>('side-panel');
+
   let draft: StageDraft = createBlankDraft();
   let currentTool: EditorTool = EditorTool.BlockNormal;
   let assets: AssetStore | null = null;
   let hoverTile: { x: number; y: number } | null = null;
 
-  const camera = { x: 0, y: 0, zoom: 1 };
+  const camera: Camera = { x: 0, y: 0, zoom: 1 };
   let isPaintingLeft = false;
   let isErasingRight = false;
   let isPanning = false;
@@ -82,13 +90,23 @@ function main(): void {
   let autosaveTimer: ReturnType<typeof setTimeout> | null = null;
   let renderScheduled = false;
 
+  // タッチ操作の状態(1本指=ペイント/タップ、2本指=パン+ピンチズーム)。
+  // 1本指ペイント中に2本目の指が触れたら、そのストロークはそのまま確定してパン/ズームへ移行する。
+  const activeTouches = new Map<number, Point>();
+  let touchMode: 'none' | 'paint' | 'pinch' = 'none';
+  let lastPinchState: PinchState | null = null;
+
   // --- 座標変換 -----------------------------------------------------------
 
-  function toCanvasPoint(event: MouseEvent): { x: number; y: number } {
+  function toCanvasPointFromClient(clientX: number, clientY: number): { x: number; y: number } {
     const rect = canvas.getBoundingClientRect();
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
-    return { x: (event.clientX - rect.left) * scaleX, y: (event.clientY - rect.top) * scaleY };
+    return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+  }
+
+  function toCanvasPoint(event: MouseEvent): { x: number; y: number } {
+    return toCanvasPointFromClient(event.clientX, event.clientY);
   }
 
   function screenToWorldPx(p: { x: number; y: number }): { x: number; y: number } {
@@ -351,6 +369,126 @@ function main(): void {
     },
     { passive: false },
   );
+
+  // --- タッチ操作 -------------------------------------------------------------
+  // 1本指: 現在選択中のツールで操作(ペイント系はドラッグ連続配置、単発系はタップ配置)。消去は
+  // 消しゴムツールで行う(右ドラッグ相当はタッチには不要)。
+  // 2本指: パン(中点の移動)+ピンチズーム(距離変化)。基準点は常に2本指の中点(pinchZoom.ts)。
+  // 1本指ペイント中に2本目の指が触れたら、そのストロークはそのまま確定してパン/ズームへ移行する
+  // (誤ペイントを後から1手で取り消せるようにはしない代わりに、移行自体はいつでも即座に行える)。
+  // touchstart/move/end/cancelすべてでpreventDefaultし、スクロール・ダブルタップズーム・
+  // 合成マウスイベントの二重発火を防ぐ(ゲーム側 src/input/input.ts と同じ方式)。
+
+  function activeTouchPoints(): Point[] {
+    return Array.from(activeTouches.values());
+  }
+
+  function updateTouchesFrom(list: TouchList): void {
+    for (let i = 0; i < list.length; i++) {
+      const touch = list.item(i);
+      if (!touch) continue;
+      if (activeTouches.has(touch.identifier)) {
+        activeTouches.set(touch.identifier, toCanvasPointFromClient(touch.clientX, touch.clientY));
+      }
+    }
+  }
+
+  canvas.addEventListener(
+    'touchstart',
+    (event) => {
+      event.preventDefault();
+      for (let i = 0; i < event.changedTouches.length; i++) {
+        const touch = event.changedTouches.item(i);
+        if (!touch) continue;
+        activeTouches.set(touch.identifier, toCanvasPointFromClient(touch.clientX, touch.clientY));
+      }
+
+      if (activeTouches.size === 1) {
+        touchMode = 'paint';
+        const [point] = activeTouchPoints();
+        if (!point) return;
+        const tile = screenToTile(point);
+        hoverTile = tile;
+        coordsEl.textContent = `x: ${tile.x}, y: ${tile.y}`;
+        if (isPaintTool(currentTool)) {
+          isPaintingLeft = true;
+          applyPaint(tile);
+        } else {
+          applyClickTool(tile);
+        }
+        scheduleRender();
+      } else if (activeTouches.size === 2) {
+        // 2本目の指: ペイントを中断(そのストロークで置いた分はそのまま確定)し、パン/ズームへ移行する
+        isPaintingLeft = false;
+        touchMode = 'pinch';
+        const [a, b] = activeTouchPoints();
+        if (a && b) lastPinchState = pinchStateFromPoints(a, b);
+      }
+      // 3本目以降は無視(既存のtouchMode/pinch状態を維持する)
+    },
+    { passive: false },
+  );
+
+  canvas.addEventListener(
+    'touchmove',
+    (event) => {
+      event.preventDefault();
+      updateTouchesFrom(event.touches);
+
+      if (touchMode === 'paint' && activeTouches.size === 1) {
+        const [point] = activeTouchPoints();
+        if (!point) return;
+        const tile = screenToTile(point);
+        hoverTile = tile;
+        coordsEl.textContent = `x: ${tile.x}, y: ${tile.y}`;
+        if (isPaintingLeft) applyPaint(tile);
+        scheduleRender();
+      } else if (touchMode === 'pinch' && activeTouches.size === 2 && lastPinchState) {
+        const [a, b] = activeTouchPoints();
+        if (!a || !b) return;
+        const nextState = pinchStateFromPoints(a, b);
+        const nextCamera = applyPinchZoom(camera, lastPinchState, nextState);
+        camera.x = nextCamera.x;
+        camera.y = nextCamera.y;
+        camera.zoom = nextCamera.zoom;
+        lastPinchState = nextState;
+        scheduleRender();
+      }
+    },
+    { passive: false },
+  );
+
+  function handleTouchEndOrCancel(event: TouchEvent): void {
+    event.preventDefault();
+    for (let i = 0; i < event.changedTouches.length; i++) {
+      const touch = event.changedTouches.item(i);
+      if (!touch) continue;
+      activeTouches.delete(touch.identifier);
+    }
+    isPaintingLeft = false;
+    // 指が1本以上残っていても自動でペイント再開/パン継続はしない(意図しない位置での誤操作を防ぐ)。
+    // 完全に指を離してから再度触れ直すことで次の操作を開始する。
+    touchMode = 'none';
+    lastPinchState = null;
+    if (activeTouches.size === 0) {
+      hoverTile = null;
+      coordsEl.textContent = 'x: -, y: -';
+    }
+    scheduleRender();
+  }
+
+  canvas.addEventListener('touchend', handleTouchEndOrCancel, { passive: false });
+  canvas.addEventListener('touchcancel', handleTouchEndOrCancel, { passive: false });
+
+  // --- モバイル: ドロワー(右サイドパネル)開閉 -----------------------------------------
+
+  function setDrawerOpen(open: boolean): void {
+    sidePanel.classList.toggle('open', open);
+    drawerBackdrop.classList.toggle('open', open);
+  }
+  btnMenuToggle.addEventListener('click', () => setDrawerOpen(true));
+  btnDrawerClose.addEventListener('click', () => setDrawerOpen(false));
+  drawerBackdrop.addEventListener('click', () => setDrawerOpen(false));
 
   // --- キーボード操作 -----------------------------------------------------------
 
