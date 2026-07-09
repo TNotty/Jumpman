@@ -49,10 +49,11 @@ describe('isPaintTool', () => {
     expect(isPaintTool(EditorTool.Eraser)).toBe(true);
   });
 
-  it('単発配置ツール(スタート/ゴール/チェックポイント/敵)は連続ペイント不可', () => {
+  it('単発配置ツール(スタート/ゴール/チェックポイント/敵/コイン)は連続ペイント不可', () => {
     expect(isPaintTool(EditorTool.Start)).toBe(false);
     expect(isPaintTool(EditorTool.Goal)).toBe(false);
     expect(isPaintTool(EditorTool.Checkpoint)).toBe(false);
     expect(isPaintTool(EditorTool.EnemySlime)).toBe(false);
+    expect(isPaintTool(EditorTool.Coin)).toBe(false);
   });
 });

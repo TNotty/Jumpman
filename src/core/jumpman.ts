@@ -5,6 +5,8 @@
 import type { AABB, JumpmanState, Vec2 } from './types';
 import type { TileGrid } from './grid';
 import { stepBody } from './physics';
+import type { PlayerStats } from './upgrades';
+import { DEFAULT_PLAYER_STATS } from './upgrades';
 import {
   CLIFF_LOOKAHEAD,
   CLIFF_PROBE_DROP,
@@ -12,25 +14,26 @@ import {
   GRAVITY,
   INVINCIBLE_DURATION,
   JUMPMAN_HEIGHT,
-  JUMPMAN_MAX_HP,
   JUMPMAN_WIDTH,
   JUMP_COOLDOWN,
-  JUMP_VELOCITY,
   KNOCKBACK_DURATION,
   KNOCKBACK_VX,
   KNOCKBACK_VY,
   MAX_FALL_SPEED,
-  RUN_SPEED,
   WALL_SENSOR_OFFSET,
 } from './constants';
 
-export function createJumpman(start: Vec2): JumpmanState {
+/**
+ * stats省略時は DEFAULT_PLAYER_STATS(強化レベル0相当=既存の定数RUN_SPEED/JUMP_VELOCITY/
+ * JUMPMAN_MAX_HPと同じ値)を使う。既存の呼び出し側・テストは互換のまま動作する。
+ */
+export function createJumpman(start: Vec2, stats: PlayerStats = DEFAULT_PLAYER_STATS): JumpmanState {
   return {
     position: { x: start.x, y: start.y },
-    velocity: { x: RUN_SPEED, y: 0 },
+    velocity: { x: stats.runSpeed, y: 0 },
     facing: 1,
     grounded: false,
-    hp: JUMPMAN_MAX_HP,
+    hp: stats.maxHp,
     invincibleTimer: 0,
     jumpCooldown: 0,
     knockbackTimer: 0,
@@ -95,15 +98,15 @@ export function isFallDeath(position: Vec2, stageHeight: number): boolean {
   return position.y > stageHeight + FALL_DEATH_MARGIN;
 }
 
-/** 直近のスタート/チェックポイント座標へ戻す。HP全快・速度リセット */
-export function respawn(state: JumpmanState): JumpmanState {
+/** 直近のスタート/チェックポイント座標へ戻す。HP全快(強化後の最大HP)・速度リセット */
+export function respawn(state: JumpmanState, stats: PlayerStats = DEFAULT_PLAYER_STATS): JumpmanState {
   return {
     ...state,
     position: { x: state.respawnPoint.x, y: state.respawnPoint.y },
-    velocity: { x: RUN_SPEED, y: 0 },
+    velocity: { x: stats.runSpeed, y: 0 },
     facing: 1,
     grounded: false,
-    hp: JUMPMAN_MAX_HP,
+    hp: stats.maxHp,
     invincibleTimer: 0,
     jumpCooldown: 0,
     knockbackTimer: 0,
@@ -144,16 +147,21 @@ export function applyDamage(state: JumpmanState, damage: number): JumpmanState {
  * 落下死判定(isFallDeath)とHP0死亡判定は呼び出し側(game.ts)が行い、
  * 死亡時のチェックポイント復帰は respawn() を使って呼び出し側から適用する。
  */
-export function updateJumpman(state: JumpmanState, grid: TileGrid, dt: number): JumpmanState {
+export function updateJumpman(
+  state: JumpmanState,
+  grid: TileGrid,
+  dt: number,
+  stats: PlayerStats = DEFAULT_PLAYER_STATS,
+): JumpmanState {
   const aabb = jumpmanAABB(state.position);
   const inKnockback = state.knockbackTimer > 0;
 
-  let velocity: Vec2 = inKnockback ? state.velocity : { x: RUN_SPEED * state.facing, y: state.velocity.y };
+  let velocity: Vec2 = inKnockback ? state.velocity : { x: stats.runSpeed * state.facing, y: state.velocity.y };
 
   let jumpCooldown = Math.max(0, state.jumpCooldown - dt);
 
   if (!inKnockback && shouldJump(grid, aabb, state.facing, state.grounded, jumpCooldown)) {
-    velocity = { ...velocity, y: JUMP_VELOCITY };
+    velocity = { ...velocity, y: stats.jumpVelocity };
     jumpCooldown = JUMP_COOLDOWN;
   }
 

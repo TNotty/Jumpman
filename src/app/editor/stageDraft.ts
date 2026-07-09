@@ -3,7 +3,10 @@
 // 通した StageData に変換する。core/grid.ts・core/types.ts の型・文字凡例をそのまま再利用する。
 import { validateStage } from '../../data/schema';
 import { BLOCK_CHAR_MAP, BLOCK_TYPE_CHAR, BlockType } from '../../core/types';
-import type { CheckpointDefinition, EnemyDefinition, EnemyType, StageData, Vec2 } from '../../core/types';
+import type { CheckpointDefinition, CoinDefinition, EnemyDefinition, EnemyType, StageData, Vec2 } from '../../core/types';
+
+/** コインの推奨枚数。エディタはこの枚数と異なる場合に警告を出す(保存/テストプレイ自体はブロックしない) */
+export const RECOMMENDED_COIN_COUNT = 5;
 
 /**
  * 編集中のステージ。StageData とほぼ同形だが、start/goal は未配置(null)を許容する。
@@ -22,6 +25,7 @@ export interface StageDraft {
   goal: Vec2 | null;
   checkpoints: CheckpointDefinition[];
   enemies: EnemyDefinition[];
+  coins: CoinDefinition[];
   mana: { initial: number; max: number; regenPerSec: number };
   eraseCost: number;
 }
@@ -52,6 +56,7 @@ export function createBlankDraft(id = 'new_stage', width = DEFAULT_DRAFT_WIDTH, 
     goal: null,
     checkpoints: [],
     enemies: [],
+    coins: [],
     mana: { initial: 10, max: 50, regenPerSec: 1 },
     eraseCost: 3,
   };
@@ -71,6 +76,7 @@ export function fromStageData(data: StageData): StageDraft {
     goal: { ...data.goal },
     checkpoints: data.checkpoints.map((cp) => ({ ...cp })),
     enemies: data.enemies.map((enemy) => ({ ...enemy })),
+    coins: data.coins.map((coin) => ({ ...coin })),
     mana: { ...data.mana },
     eraseCost: data.eraseCost,
   };
@@ -169,7 +175,18 @@ export function toggleEnemy(draft: StageDraft, point: Vec2, type: EnemyType): St
   return { ...draft, enemies: [...draft.enemies, { type, x: point.x, y: point.y, dir: -1 }] };
 }
 
-/** ブロック・スタート/ゴール/チェックポイント/敵をまとめて消去する(消しゴム・右クリック消去用) */
+/** 指定セルに既にコインがあれば削除、無ければ追加する(クリック単発配置・再クリックで削除のトグル) */
+export function toggleCoin(draft: StageDraft, point: Vec2): StageDraft {
+  if (!inBounds(draft, point.x, point.y)) return draft;
+  const existingIndex = draft.coins.findIndex((c) => c.x === point.x && c.y === point.y);
+  if (existingIndex >= 0) {
+    const coins = draft.coins.filter((_, i) => i !== existingIndex);
+    return { ...draft, coins };
+  }
+  return { ...draft, coins: [...draft.coins, { x: point.x, y: point.y }] };
+}
+
+/** ブロック・スタート/ゴール/チェックポイント/敵/コインをまとめて消去する(消しゴム・右クリック消去用) */
 export function eraseAt(draft: StageDraft, point: Vec2): StageDraft {
   if (!inBounds(draft, point.x, point.y)) return draft;
   let next = setTile(draft, point.x, point.y, BlockType.Empty);
@@ -184,6 +201,9 @@ export function eraseAt(draft: StageDraft, point: Vec2): StageDraft {
   }
   if (next.enemies.some((e) => e.x === point.x && e.y === point.y)) {
     next = { ...next, enemies: next.enemies.filter((e) => !(e.x === point.x && e.y === point.y)) };
+  }
+  if (next.coins.some((c) => c.x === point.x && c.y === point.y)) {
+    next = { ...next, coins: next.coins.filter((c) => !(c.x === point.x && c.y === point.y)) };
   }
   return next;
 }
@@ -230,6 +250,7 @@ export function toStageData(draft: StageDraft): DraftToStageResult {
     goal: draft.goal,
     checkpoints: draft.checkpoints,
     enemies: draft.enemies,
+    coins: draft.coins,
     mana: draft.mana,
     eraseCost: draft.eraseCost,
   };
@@ -245,6 +266,9 @@ export function toStageData(draft: StageDraft): DraftToStageResult {
  * 構造的なゆるいガード(オートセーブからの読込専用)。StageDraft は start/goal が null
  * を許容するなど validateStage の対象外の形をとるため、フルスキーマ検証(validateStage)は
  * 使わず、破損データでクラッシュしない程度の最小限の形チェックのみ行う。
+ * coinsフィールドが無い(coins追加前の)古いオートセーブは意図的にfalseを返し、
+ * createBlankDraft()にフォールバックさせる(coins無しのStageDraftをそのまま信用してしまうと
+ * 後続処理がdraft.coinsに触れた際にクラッシュしうるため)。
  */
 export function isStageDraftLike(value: unknown): value is StageDraft {
   if (typeof value !== 'object' || value === null) return false;
@@ -258,6 +282,7 @@ export function isStageDraftLike(value: unknown): value is StageDraft {
     Array.isArray(v['tiles']) &&
     Array.isArray(v['checkpoints']) &&
     Array.isArray(v['enemies']) &&
+    Array.isArray(v['coins']) &&
     typeof v['mana'] === 'object' &&
     v['mana'] !== null &&
     typeof v['eraseCost'] === 'number'

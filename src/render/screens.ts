@@ -40,6 +40,49 @@ export interface StageMeta {
   id: string;
   name: string;
   theme: string;
+  /** このステージの総コイン数 */
+  coinCount: number;
+  /** 取得済みコインのindex集合(セーブデータ由来) */
+  collectedCoinIndices: ReadonlySet<number>;
+}
+
+/**
+ * コインの取得状態→描画不透明度。取得済みは半透明(0.35)、未取得は不透明(1)にする
+ * (renderer.ts の drawCoins の taken ? 0.35 : 1 とHUD側の見た目を揃える)。
+ * 単体テスト用に切り出した純関数。
+ */
+export function coinAlpha(collected: boolean): number {
+  return collected ? 0.35 : 1;
+}
+
+/**
+ * ステージ選択枠の内側にコインアイコンをcoinCount個、横並びで描く。取得済みは半透明、
+ * 未取得は不透明にする(ゲーム内HUDのコイン表示と同じ見た目を揃える。coinAlpha参照)。
+ * assetsに依存させず(screens.tsは既存どおりctxプリミティブのみで描く)、
+ * 簡易な円で表現する(HUD側の所持コイン表示と似た見た目)。
+ */
+function drawStageCoinRow(ctx: CanvasRenderingContext2D, rect: Rect, meta: StageMeta): void {
+  if (meta.coinCount <= 0) return;
+  const radius = 7;
+  const gap = 6;
+  const totalWidth = meta.coinCount * (radius * 2) + (meta.coinCount - 1) * gap;
+  const startX = rect.x + rect.w / 2 - totalWidth / 2 + radius;
+  const y = rect.y + rect.h - 18;
+
+  for (let i = 0; i < meta.coinCount; i++) {
+    const cx = startX + i * (radius * 2 + gap);
+    const collected = meta.collectedCoinIndices.has(i);
+    ctx.save();
+    ctx.globalAlpha = coinAlpha(collected);
+    ctx.fillStyle = '#f1c40f';
+    ctx.beginPath();
+    ctx.arc(cx, y, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#a9720a';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 // 5ステージ(以上)でも画面(LOGICAL_HEIGHT=768)からはみ出さないよう、縦1列ではなく2列グリッドで
@@ -85,7 +128,10 @@ export function drawStageSelectScreen(ctx: CanvasRenderingContext2D, stages: rea
 
     ctx.fillStyle = '#ffffff';
     ctx.font = '24px sans-serif';
-    ctx.fillText(stage.name, rect.x + rect.w / 2, rect.y + rect.h / 2);
+    // コイン列を枠の下側に描くため、名前は少し上に寄せる
+    ctx.fillText(stage.name, rect.x + rect.w / 2, rect.y + rect.h / 2 - 10);
+
+    drawStageCoinRow(ctx, rect, stage);
   });
   ctx.restore();
 }

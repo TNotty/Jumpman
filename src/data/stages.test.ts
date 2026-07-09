@@ -46,17 +46,38 @@ describe('同梱ステージJSON(5本、各約600タイル)', () => {
     expect(r4.value.enemies.length).toBeGreaterThan(r1.value.enemies.length);
     expect(r5.value.enemies.length).toBeGreaterThan(r1.value.enemies.length);
   });
+
+  it.each(STAGES)('$id はコインをちょうど5枚持つ(推奨枚数)', ({ raw }) => {
+    const result = validateStage(raw);
+    if (!result.ok) throw new Error('validation failed');
+    expect(result.value.coins).toHaveLength(5);
+  });
 });
 
 describe('同梱地形マスタJSON', () => {
-  it('terrainMaster.json はスキーマに準拠する', () => {
+  it('terrainMaster.json はスキーマに準拠し、18種(初期解放3種+未解放15種)を持つ', () => {
     const result = validateTerrainMaster(terrainMasterRaw);
     if (!result.ok) {
       throw new Error(`terrainMaster.json validation failed: ${result.errors.join(', ')}`);
     }
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.terrains.length).toBeGreaterThan(0);
-    expect(result.value.terrains.length).toBeLessThanOrEqual(8);
+    expect(result.value.terrains).toHaveLength(18);
+
+    const unlocked = result.value.terrains.filter((t) => t.unlocked);
+    const locked = result.value.terrains.filter((t) => !t.unlocked);
+    expect(unlocked).toHaveLength(3);
+    expect(locked).toHaveLength(15);
+    expect(unlocked.map((t) => t.id).sort()).toEqual(['h5', 'u', 'v3']);
+
+    // 初期解放済みはunlockCost0、未解放は2〜6の範囲(要望どおりのバランス目安)
+    for (const terrain of unlocked) {
+      expect(terrain.unlockCost).toBe(0);
+    }
+    for (const terrain of locked) {
+      expect(terrain.unlockCost).toBeGreaterThanOrEqual(2);
+      expect(terrain.unlockCost).toBeLessThanOrEqual(6);
+    }
+
+    const ids = result.value.terrains.map((t) => t.id);
+    expect(new Set(ids).size).toBe(ids.length); // id重複が無い
   });
 });

@@ -105,6 +105,24 @@ export interface CheckpointState extends CheckpointDefinition {
   activated: boolean;
 }
 
+/** コインの静的定義(ステージJSON)。1マス相当の位置のみ持つ */
+export interface CoinDefinition {
+  x: number;
+  y: number;
+}
+
+/**
+ * 実行時のコイン状態。
+ * permanentlyCollected: このプレイ開始時点(createGameState呼び出し時点)で既にセーブデータ上
+ *   取得済みだったか。半透明表示になり、重なってもwalletは増えない(何度でも「見た目上」拾える)。
+ * collectedThisSession: 今回のプレイ中(このGameStateの生存期間、死亡/リトライを跨いでも)に
+ *   新規取得したか。取得後は半透明表示になる(permanentlyCollectedと同じ見た目)。
+ */
+export interface CoinState extends CoinDefinition {
+  permanentlyCollected: boolean;
+  collectedThisSession: boolean;
+}
+
 /** マナ設定(ステージJSONで上書き可能。既定値は constants.ts) */
 export interface ManaConfig {
   initial: number;
@@ -132,6 +150,8 @@ export interface TerrainDefinition {
   name: string;
   cost: number;
   unlocked: boolean;
+  /** 解放に必要なコイン枚数(未解放時のみ意味を持つ)。解放済みエントリは慣例的に0 */
+  unlockCost: number;
   /** 文字凡例はステージJSONと同じ('.'は形状に含まれない空マス)。左上セルが配置基準点 */
   grid: string[];
 }
@@ -157,6 +177,8 @@ export interface StageData {
   enemies: EnemyDefinition[];
   mana: ManaConfig;
   eraseCost: number;
+  /** コイン配置(推奨5枚、スキーマ上は0枚以上を許容)。省略時(後方互換)は空配列扱い */
+  coins: CoinDefinition[];
 }
 
 /** ジャンプマンの実行時状態 */

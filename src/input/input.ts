@@ -41,9 +41,18 @@ export class InputManager {
 
   private readonly canvas: HTMLCanvasElement;
   private readonly getCamera: () => CameraState;
-  private readonly terrainMaster: readonly TerrainDefinition[];
+  /**
+   * パレット8枠の元データ。readonlyではない(letと同義)にしているのは、v5-2の強化画面で
+   * loadoutを編集した後、次のプレイ開始時(startPlaying)に最新のパレットへ差し替える
+   * setTerrainMaster()を呼べるようにするため(InputManager自体は使い回し、作り直さない)。
+   */
+  private terrainMaster: readonly (TerrainDefinition | null)[];
 
-  constructor(canvas: HTMLCanvasElement, getCamera: () => CameraState, terrainMaster: readonly TerrainDefinition[] = []) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    getCamera: () => CameraState,
+    terrainMaster: readonly (TerrainDefinition | null)[] = [],
+  ) {
     this.canvas = canvas;
     this.getCamera = getCamera;
     this.terrainMaster = terrainMaster;
@@ -75,6 +84,17 @@ export class InputManager {
     const commands = this.queue;
     this.queue = [];
     return commands;
+  }
+
+  /**
+   * パレット8枠の元データを差し替える(強化画面でloadoutを編集した後、次のプレイ開始時に
+   * 呼ばれる想定)。選択中スロットがロック中/空枠になった場合に備え、選択状態を安全な
+   * 初期値(0番、既存のselectSlotコマンドと同じ検証ロジックは経由しないため直接リセットする)
+   * に戻す。
+   */
+  setTerrainMaster(terrainMaster: readonly (TerrainDefinition | null)[]): void {
+    this.terrainMaster = terrainMaster;
+    this.selectedSlot = 0;
   }
 
   getSelectedSlot(): PaletteSlot {

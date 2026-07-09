@@ -22,9 +22,9 @@ import type { StageData, TerrainDefinition } from '../core/types';
 // 実際のゲームパレットと独立させ、このテストが terrainMaster.json の将来的な変更に
 // 影響されないようにしている。
 const BRIDGE_TERRAINS: TerrainDefinition[] = [
-  { id: 'h5', name: '横5マス', cost: 3, unlocked: true, grid: ['NNNNN'] },
-  { id: 'h3', name: '横3マス', cost: 2, unlocked: true, grid: ['NNN'] },
-  { id: 'block1', name: '1マス', cost: 1, unlocked: true, grid: ['N'] },
+  { id: 'h5', name: '横5マス', cost: 3, unlocked: true, unlockCost: 0, grid: ['NNNNN'] },
+  { id: 'h3', name: '横3マス', cost: 2, unlocked: true, unlockCost: 0, grid: ['NNN'] },
+  { id: 'block1', name: '1マス', cost: 1, unlocked: true, unlockCost: 0, grid: ['N'] },
 ];
 
 /** 幅(8か9)から橋の内訳(h5+h3、または h5+h3+block1)を返す */
@@ -110,7 +110,9 @@ function loadStage(raw: unknown, label: string): StageData {
   return result.value;
 }
 
-const MAX_STEPS_PER_LEG = 4000;
+// RUN_SPEED半減(v5-1の初期調整、6→3)により同じ距離の走行に約2倍のフレーム数がかかるため、
+// 1区間あたりのタイムアウト予算も2倍にする(元は4000)。
+const MAX_STEPS_PER_LEG = 8000;
 
 describe('同梱ステージのクリア可能性(実プレイに近い、その場での橋渡しによる検証)', () => {
   it('stage01.json: 穴(x=150, 幅8)を橋渡しすれば死亡せずゴールに到達できる', () => {

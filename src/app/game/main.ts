@@ -6,13 +6,16 @@ import { createGameState, update as updateGame } from '../../core/game';
 import type { GameState } from '../../core/game';
 import { GameStatus } from '../../core/types';
 import type { StageData, TerrainDefinition } from '../../core/types';
+import { derivePlayerStats } from '../../core/upgrades';
 import { validateStage, validateTerrainMaster } from '../../data/schema';
+import { loadSaveData, saveSaveData } from '../../data/saveData';
 import stage01Raw from '../../data/stages/stage01.json';
 import stage02Raw from '../../data/stages/stage02.json';
 import stage03Raw from '../../data/stages/stage03.json';
 import stage04Raw from '../../data/stages/stage04.json';
 import stage05Raw from '../../data/stages/stage05.json';
 import terrainMasterRaw from '../../data/terrainMaster.json';
+import { resolveLoadoutPalette } from './loadout';
 import { AssetStore, loadAssets } from '../../render/assets';
 import { createCamera, updateCamera } from '../../render/camera';
 import type { CameraState } from '../../render/camera';
@@ -31,6 +34,7 @@ import { InputManager } from '../../input/input';
 import { openEditor, openTerrainEditor } from '../../platform/navigation';
 import { loadJSON, saveJSON } from '../../platform/storage';
 import { createLoop } from '../loop';
+import { createUpgradeScreen } from './upgradeScreen';
 
 /** マップエディタ(Phase C)がテストプレイ用のdraftステージを書き込むキー */
 export const DRAFT_STAGE_STORAGE_KEY = 'jumpman:draftStage';
@@ -168,6 +172,37 @@ function createGameUiOverlay(input: InputManager): void {
   document.body.appendChild(container);
 }
 
+interface UpgradeEntryHandles {
+  /** シーン切替時のみDOMのstyleを書き換える(devOverlay.syncと同じパターン) */
+  sync: (sceneKind: Scene['kind']) => void;
+}
+
+/**
+ * 「プレイヤー強化」画面への常時表示の入口ボタン(開発限定ではない製品UI)。
+ * タイトル/ステージ選択画面でのみ表示し、プレイ中/クリア画面では隠す
+ * (devOverlayのsyncパターンをそのまま踏襲: シーン種別が変わった時だけstyleを書き換える)。
+ * gameUiOverlay(左上)・devOverlay(右上、DEV限定)と重ならないよう右下隅に配置する。
+ */
+function createUpgradeEntryButton(onOpen: () => void): UpgradeEntryHandles {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = 'プレイヤー強化';
+  button.style.cssText =
+    'position:fixed; bottom:8px; right:8px; z-index:900; display:none; ' +
+    `${GAME_UI_BUTTON_STYLE} padding:10px 14px; font-size:14px; min-height:44px;`;
+  button.addEventListener('click', () => onOpen());
+  document.body.appendChild(button);
+
+  let lastSceneKind: Scene['kind'] | null = null;
+  const sync = (sceneKind: Scene['kind']): void => {
+    if (sceneKind === lastSceneKind) return;
+    lastSceneKind = sceneKind;
+    button.style.display = sceneKind === 'title' || sceneKind === 'stageSelect' ? 'block' : 'none';
+  };
+
+  return { sync };
+}
+
 function getCanvas(): HTMLCanvasElement {
   const canvas = document.getElementById('game-canvas');
   if (!(canvas instanceof HTMLCanvasElement)) {
@@ -246,7 +281,37 @@ async function main(): Promise<void> {
     return;
   }
 
+  // セーブデータ(wallet・コイン取得状況・強化・loadout)を読み込む。壊れていても既定値に
+  // フォールバックする(saveData.ts参照)ため、ここでは常に有効な値が得られる。
+  // save は取得コイン反映のたびに再代入する(以降の全クロージャが同じ変数を参照するため、
+  // 再代入は自動的にHUD/ステージ選択画面の再描画にも反映される)。
+  let save = loadSaveData();
+
+  // ゲームのパレットは「セーブのloadout配列(8枠、地形IDまたは空枠null)」を地形マスタ(同梱/
+  // カスタム)から解決した結果を表示する。v5-2で強化画面からloadoutを編集できるようになった
+  // ため、let にして startPlaying() のたびに最新のセーブから再計算する(空枠はInputManager/
+  // game.ts側で選択不可として扱われる=null安全)。
+  let paletteTerrains = resolveLoadoutPalette(save.loadout, terrainMaster, save.unlockedTerrainIds);
+
+  /** 今回のプレイでtakenThisSessionのうち、既にセーブへ反映済みの件数(先頭からの累積) */
+  let lastPersistedTakenCount = 0;
+
+  // input は startPlaying() 内から setTerrainMaster() を呼ぶため、startPlaying() より前に
+  // 生成しておく必要がある(下のdraftステージ連携がstartPlaying()を呼ぶより前)。
+  const input = new InputManager(
+    canvas,
+    () => (scene.kind === 'playing' ? scene.camera : createCamera()),
+    paletteTerrains,
+  );
+
   function startPlaying(stageData: StageData, stageIndex: number): Scene {
+    lastPersistedTakenCount = 0;
+    // プレイ開始時点の最新セーブから、強化(PlayerStats)とloadoutパレットを毎回作り直す
+    // (既にプレイ中のゲームには影響しなくてよい、という要件どおり再計算はここでのみ行う)。
+    paletteTerrains = resolveLoadoutPalette(save.loadout, terrainMaster, save.unlockedTerrainIds);
+    input.setTerrainMaster(paletteTerrains);
+    const playerStats = derivePlayerStats(save.upgrades);
+    const collectedCoinIndices = new Set(save.collected[stageData.id] ?? []);
     // stageDataはプレイ開始時点の元データをそのまま保持する(gridは生成/消去で変化するが
     // stageDataは不変のまま=「エディタで開く」機能がプレイヤーの変更を巻き戻さず、
     // 常に元のステージ定義を渡せるようにするため)。
@@ -254,9 +319,38 @@ async function main(): Promise<void> {
       kind: 'playing',
       stageIndex,
       stageData,
-      game: createGameState(stageData, terrainMaster),
+      game: createGameState(stageData, paletteTerrains, collectedCoinIndices, playerStats),
       camera: createCamera(),
     };
+  }
+
+  /**
+   * GameState.takenThisSession の増分をセーブデータへ反映する(walletを加算し、
+   * collected[stageId]へindexを追加して即保存)。permanentlyCollectedだったコインの
+   * indexはcore側で最初からtakenThisSessionに入らないため、ここに現れるのは常に
+   * 「新規に取得すべきもの」だけであり、二重加算の心配はない。
+   */
+  function persistNewlyCollectedCoins(stageId: string, takenThisSession: readonly number[]): void {
+    if (takenThisSession.length <= lastPersistedTakenCount) return;
+    const newIndices = takenThisSession.slice(lastPersistedTakenCount);
+    lastPersistedTakenCount = takenThisSession.length;
+
+    const existing = new Set(save.collected[stageId] ?? []);
+    let addedCoins = 0;
+    for (const index of newIndices) {
+      if (!existing.has(index)) {
+        existing.add(index);
+        addedCoins += 1;
+      }
+    }
+    if (addedCoins === 0) return;
+
+    save = {
+      ...save,
+      wallet: save.wallet + addedCoins,
+      collected: { ...save.collected, [stageId]: Array.from(existing).sort((a, b) => a - b) },
+    };
+    saveSaveData(save);
   }
 
   function hasNextStage(stageIndex: number): boolean {
@@ -284,14 +378,20 @@ async function main(): Promise<void> {
 
   let animTime = 0;
 
-  const input = new InputManager(
-    canvas,
-    () => (scene.kind === 'playing' ? scene.camera : createCamera()),
-    terrainMaster,
-  );
-
   // 常時表示の製品UI(全画面切替・タッチ生成アンカー切替)。devOverlayと異なりDEV限定ではない。
   createGameUiOverlay(input);
+
+  // 強化画面(プレイヤー強化+地形解放+ロードアウト編集)。setSaveはpersistNewlyCollectedCoinsと
+  // 同じ「saveクロージャ変数を再代入してsaveSaveData()する」パターンを踏襲する。
+  const upgradeScreen = createUpgradeScreen({
+    fullTerrainMaster: terrainMaster,
+    getSave: () => save,
+    setSave: (next) => {
+      save = next;
+      saveSaveData(save);
+    },
+  });
+  const upgradeEntry = createUpgradeEntryButton(() => upgradeScreen.open());
 
   // 開発限定UI(タイトルのエディタリンク・プレイ中の「エディタで開く」ボタン)。
   // import.meta.env.DEV は `vite build` の本番ビルドでは静的に false になるため、
@@ -369,6 +469,7 @@ async function main(): Promise<void> {
 
       if (scene.kind === 'playing') {
         const nextGame = updateGame(scene.game, commands, dt);
+        persistNewlyCollectedCoins(nextGame.stage.id, nextGame.takenThisSession);
         const stageWidthPx = nextGame.grid.width * TILE_SIZE;
         const stageHeightPx = nextGame.grid.height * TILE_SIZE;
         const targetWorldX = (nextGame.jumpman.position.x + JUMPMAN_WIDTH / 2) * TILE_SIZE;
@@ -393,21 +494,28 @@ async function main(): Promise<void> {
     },
     render: () => {
       devOverlay?.sync(scene.kind);
+      upgradeEntry.sync(scene.kind);
       if (scene.kind === 'title') {
         drawTitleScreen(ctx, Math.floor(animTime * 2) % 2 === 0);
         return;
       }
       if (scene.kind === 'stageSelect') {
-        const metas: StageMeta[] = stages.map((s) => ({ id: s.id, name: s.data.name, theme: s.data.theme }));
+        const metas: StageMeta[] = stages.map((s) => ({
+          id: s.id,
+          name: s.data.name,
+          theme: s.data.theme,
+          coinCount: s.data.coins.length,
+          collectedCoinIndices: new Set(save.collected[s.id] ?? []),
+        }));
         drawStageSelectScreen(ctx, metas);
         return;
       }
       if (scene.kind === 'playing') {
-        renderGame(ctx, assets, scene.game, scene.camera, animTime, input.getHoverTile());
+        renderGame(ctx, assets, scene.game, scene.camera, animTime, input.getHoverTile(), save.wallet);
         return;
       }
       // 'clear'
-      renderGame(ctx, assets, scene.game, scene.camera, animTime, null);
+      renderGame(ctx, assets, scene.game, scene.camera, animTime, null, save.wallet);
       drawClearButtons(ctx, hasNextStage(scene.stageIndex));
     },
   });

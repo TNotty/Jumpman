@@ -15,8 +15,8 @@ export const GAME_AREA_HEIGHT = 640;
 /** 下側: パレット領域の高さ(全体の1/6) */
 export const PALETTE_HEIGHT = 128;
 
-/** ジャンプマンの自動走行速度(タイル/秒) */
-export const RUN_SPEED = 6;
+/** ジャンプマンの自動走行速度(タイル/秒)。v5-1で初期調整のため半分にした(6→3) */
+export const RUN_SPEED = 3;
 /** 重力加速度(タイル/秒^2) */
 export const GRAVITY = 50;
 /** ジャンプ初速(上方向は負、到達高さ≈2.9タイル) */

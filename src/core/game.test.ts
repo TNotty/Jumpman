@@ -3,6 +3,7 @@ import { FIXED_DT, JUMPMAN_MAX_HP } from './constants';
 import { createGameState, update } from './game';
 import { BlockType, EnemyType, GameStatus } from './types';
 import type { StageData, TerrainDefinition } from './types';
+import { derivePlayerStats, zeroUpgradeLevels } from './upgrades';
 
 function buildStage(overrides: Partial<StageData> = {}): StageData {
   return {
@@ -19,6 +20,7 @@ function buildStage(overrides: Partial<StageData> = {}): StageData {
     enemies: [{ type: EnemyType.Slime, x: 5, y: 1, dir: -1 }],
     mana: { initial: 10, max: 50, regenPerSec: 1 },
     eraseCost: 3,
+    coins: [],
     ...overrides,
   };
 }
@@ -52,9 +54,9 @@ describe('update', () => {
 
   it('selectSlot: ロック中のスロットへは切り替わらず、ロック解除済みへは切り替わる', () => {
     const terrainMaster: TerrainDefinition[] = [
-      { id: 'h2', name: '横2', cost: 2, unlocked: true, grid: ['NN'] },
-      { id: 'locked1', name: 'ロック', cost: 1, unlocked: false, grid: ['N'] },
-      { id: 'v2', name: '縦2', cost: 2, unlocked: true, grid: ['N', 'N'] },
+      { id: 'h2', name: '横2', cost: 2, unlocked: true, unlockCost: 0, grid: ['NN'] },
+      { id: 'locked1', name: 'ロック', cost: 1, unlocked: false, unlockCost: 5, grid: ['N'] },
+      { id: 'v2', name: '縦2', cost: 2, unlocked: true, unlockCost: 0, grid: ['N', 'N'] },
     ];
     let state = createGameState(buildStage(), terrainMaster);
     expect(state.selectedSlot).toBe(0);
@@ -67,7 +69,7 @@ describe('update', () => {
   });
 
   it('selectSlot: 消去スロット(eraser)は常時選択可能', () => {
-    const terrainMaster: TerrainDefinition[] = [{ id: 'h2', name: '横2', cost: 2, unlocked: true, grid: ['NN'] }];
+    const terrainMaster: TerrainDefinition[] = [{ id: 'h2', name: '横2', cost: 2, unlocked: true, unlockCost: 0, grid: ['NN'] }];
     let state = createGameState(buildStage(), terrainMaster);
 
     state = update(state, [{ type: 'selectSlot', slot: 'eraser' }], FIXED_DT);
@@ -75,7 +77,7 @@ describe('update', () => {
   });
 
   it('消去スロット選択中: placeTerrainコマンドが1マス消去として扱われる(terrainIdは無視される)', () => {
-    const terrainMaster: TerrainDefinition[] = [{ id: 'h2', name: '横2', cost: 2, unlocked: true, grid: ['NN'] }];
+    const terrainMaster: TerrainDefinition[] = [{ id: 'h2', name: '横2', cost: 2, unlocked: true, unlockCost: 0, grid: ['NN'] }];
     let state = createGameState(buildStage({ mana: { initial: 10, max: 50, regenPerSec: 0 } }), terrainMaster);
 
     // 消去対象として、ステージ由来の床(row3)の1マスを使う
@@ -92,7 +94,7 @@ describe('update', () => {
   });
 
   it('消去スロット選択中: マナ不足なら拒否され、グリッド・マナとも変化しない', () => {
-    const terrainMaster: TerrainDefinition[] = [{ id: 'h2', name: '横2', cost: 2, unlocked: true, grid: ['NN'] }];
+    const terrainMaster: TerrainDefinition[] = [{ id: 'h2', name: '横2', cost: 2, unlocked: true, unlockCost: 0, grid: ['NN'] }];
     // eraseCost(既定3)未満のマナしか無い状態にする
     let state = createGameState(buildStage({ mana: { initial: 1, max: 50, regenPerSec: 0 } }), terrainMaster);
     expect(state.stage.eraseCost).toBe(3);
@@ -108,7 +110,7 @@ describe('update', () => {
   });
 
   it('右クリック相当のeraseTileコマンドは、消去スロットを選択していなくても常時有効', () => {
-    const terrainMaster: TerrainDefinition[] = [{ id: 'h2', name: '横2', cost: 2, unlocked: true, grid: ['NN'] }];
+    const terrainMaster: TerrainDefinition[] = [{ id: 'h2', name: '横2', cost: 2, unlocked: true, unlockCost: 0, grid: ['NN'] }];
     let state = createGameState(buildStage({ mana: { initial: 10, max: 50, regenPerSec: 0 } }), terrainMaster);
     expect(state.selectedSlot).toBe(0); // 地形スロットを選択したまま(消去スロットではない)
 
@@ -117,7 +119,7 @@ describe('update', () => {
   });
 
   it('placeTerrain/eraseTile: パレット経由で実際に地形を生成・消去し、マナを消費する', () => {
-    const terrainMaster: TerrainDefinition[] = [{ id: 'h2', name: '横2', cost: 2, unlocked: true, grid: ['NN'] }];
+    const terrainMaster: TerrainDefinition[] = [{ id: 'h2', name: '横2', cost: 2, unlocked: true, unlockCost: 0, grid: ['NN'] }];
     let state = createGameState(buildStage(), terrainMaster);
 
     // ジャンプマン・敵から離れた空きマス(x=2,y=0)に生成
@@ -134,7 +136,7 @@ describe('update', () => {
   });
 
   it('placeTerrain: 存在しないterrainIdは無視される(グリッド・マナとも変化なし)', () => {
-    const terrainMaster: TerrainDefinition[] = [{ id: 'h2', name: '横2', cost: 2, unlocked: true, grid: ['NN'] }];
+    const terrainMaster: TerrainDefinition[] = [{ id: 'h2', name: '横2', cost: 2, unlocked: true, unlockCost: 0, grid: ['NN'] }];
     const state = createGameState(buildStage(), terrainMaster);
     const before = state.mana.current;
 
@@ -177,6 +179,7 @@ describe('update', () => {
       enemies: [],
       mana: { initial: 10, max: 50, regenPerSec: 1 },
       eraseCost: 3,
+      coins: [],
     };
 
     let state = createGameState(stage);
@@ -210,6 +213,7 @@ describe('update', () => {
       enemies: [],
       mana: { initial: 10, max: 50, regenPerSec: 1 },
       eraseCost: 3,
+      coins: [],
     };
 
     let state = createGameState(stage);
@@ -234,7 +238,7 @@ describe('update', () => {
   });
 
   it('マナ境界統合: コスト-1では拒否され、ちょうどのコストでは許可される', () => {
-    const terrainMaster: TerrainDefinition[] = [{ id: 'h2', name: '横2', cost: 5, unlocked: true, grid: ['NN'] }];
+    const terrainMaster: TerrainDefinition[] = [{ id: 'h2', name: '横2', cost: 5, unlocked: true, unlockCost: 0, grid: ['NN'] }];
 
     // コストちょうど-1(4)では拒否され、グリッド・マナとも変化しない
     const shortState = createGameState(buildStage({ mana: { initial: 4, max: 50, regenPerSec: 0 } }), terrainMaster);
@@ -248,5 +252,167 @@ describe('update', () => {
     expect(afterExact.grid.get(2, 0)).toBe(BlockType.Normal);
     expect(afterExact.grid.get(3, 0)).toBe(BlockType.Normal);
     expect(afterExact.mana.current).toBe(0);
+  });
+});
+
+describe('コイン取得', () => {
+  function runFrames(state: ReturnType<typeof createGameState>, frames: number): ReturnType<typeof createGameState> {
+    let s = state;
+    for (let i = 0; i < frames; i++) {
+      s = update(s, [], FIXED_DT);
+    }
+    return s;
+  }
+
+  it('通常のコインに重なると取得済みになり、takenThisSessionにindexが記録される', () => {
+    const stage = buildStage({ coins: [{ x: 3, y: 1 }] });
+    let state = createGameState(stage);
+    expect(state.coins).toEqual([{ x: 3, y: 1, permanentlyCollected: false, collectedThisSession: false }]);
+    expect(state.takenThisSession).toEqual([]);
+
+    state = runFrames(state, 180); // x=1→3への到達に十分な余裕(RUN_SPEED=3でも数秒あれば届く)
+
+    expect(state.coins[0]?.collectedThisSession).toBe(true);
+    expect(state.coins[0]?.permanentlyCollected).toBe(false);
+    expect(state.takenThisSession).toEqual([0]);
+  });
+
+  it('永続取得済み(セーブ由来)のコインは重なってもtakenThisSessionに増えない(半透明のまま・再加算されない)', () => {
+    const stage = buildStage({ coins: [{ x: 3, y: 1 }, { x: 6, y: 1 }] });
+    let state = createGameState(stage, [], new Set([0])); // index0のみ既に取得済み
+
+    expect(state.coins[0]?.permanentlyCollected).toBe(true);
+    expect(state.coins[1]?.permanentlyCollected).toBe(false);
+
+    state = runFrames(state, 400); // 両方のコイン位置を通過するのに十分な余裕
+
+    // index0(永続取得済み)はcollectedThisSessionにならず、takenThisSessionにも入らない
+    expect(state.coins[0]?.collectedThisSession).toBe(false);
+    // index1(未取得)は通常どおり新規取得される
+    expect(state.coins[1]?.collectedThisSession).toBe(true);
+    expect(state.takenThisSession).toEqual([1]); // index0は含まれない
+  });
+
+  it('取得後に死亡してチェックポイントへ復帰しても、取得状態(takenThisSession)は維持される(復活しない)', () => {
+    const stage = buildStage({ coins: [{ x: 3, y: 1 }] });
+    let state = createGameState(stage);
+
+    // コイン(x=3)通過には十分だが、ゴール(x=8)にはまだ届かない程度に留める
+    // (ゴールに到達してCleared状態になると、update()が以降の処理(死亡復帰含む)を丸ごと
+    // スキップするようになり、このテストの後半が意味を成さなくなるため)。
+    state = runFrames(state, 90);
+    expect(state.status).toBe(GameStatus.Playing);
+    expect(state.takenThisSession).toEqual([0]);
+    expect(state.coins[0]?.collectedThisSession).toBe(true);
+
+    // HPを0にして次のupdateで死亡→チェックポイント復帰させる(scenario.test.tsと同じ手法)
+    state = { ...state, jumpman: { ...state.jumpman, hp: 0 } };
+    const beforeRespawnPosition = state.jumpman.position;
+    state = update(state, [], FIXED_DT);
+
+    // 復帰(HP全快・位置リセット)が実際に起きたことの確認
+    expect(state.jumpman.hp).toBeGreaterThan(0);
+    expect(state.jumpman.position).not.toEqual(beforeRespawnPosition);
+
+    // コインの取得状態は死亡復帰を跨いで維持される(消えない・巻き戻らない)
+    expect(state.coins[0]?.collectedThisSession).toBe(true);
+    expect(state.takenThisSession).toEqual([0]);
+  });
+});
+
+describe('PlayerStats統合(createGameState/updateへの反映)', () => {
+  function runFrames(state: ReturnType<typeof createGameState>, frames: number): ReturnType<typeof createGameState> {
+    let s = state;
+    for (let i = 0; i < frames; i++) {
+      s = update(s, [], FIXED_DT);
+    }
+    return s;
+  }
+
+  it('speed lv10: 同じフレーム数での移動距離がおよそ2倍になる(RUN_SPEED×2)', () => {
+    // 平坦・障害物無し・十分な幅の専用ステージ(標準のbuildStage()は幅10と狭く、
+    // 高速側がゴールに到達してCleared状態になり得るため専用に組む)。
+    const width = 80;
+    const height = 4;
+    const stage = buildStage({
+      width,
+      height,
+      tiles: [
+        '.'.repeat(width),
+        '.'.repeat(width),
+        '.'.repeat(width),
+        'N'.repeat(width),
+      ],
+      start: { x: 1, y: 1 },
+      goal: { x: width - 2, y: 1 },
+      checkpoints: [],
+      enemies: [],
+    });
+
+    const baseStats = derivePlayerStats(zeroUpgradeLevels());
+    const fastStats = derivePlayerStats({ ...zeroUpgradeLevels(), speed: 10 });
+    expect(fastStats.runSpeed).toBe(baseStats.runSpeed * 2);
+
+    const baseStart = createGameState(stage, [], new Set(), baseStats);
+    const fastStart = createGameState(stage, [], new Set(), fastStats);
+
+    const FRAMES = 60; // 1秒分
+    const baseAfter = runFrames(baseStart, FRAMES);
+    const fastAfter = runFrames(fastStart, FRAMES);
+
+    const baseDistance = baseAfter.jumpman.position.x - baseStart.jumpman.position.x;
+    const fastDistance = fastAfter.jumpman.position.x - fastStart.jumpman.position.x;
+
+    expect(baseAfter.status).toBe(GameStatus.Playing); // どちらもゴール到達前(距離比較が意味を持つ前提)
+    expect(fastAfter.status).toBe(GameStatus.Playing);
+    expect(baseDistance).toBeGreaterThan(0);
+    expect(fastDistance / baseDistance).toBeCloseTo(2, 1);
+  });
+
+  it('hp lv3: 最大HPが5→8になり、死亡復帰後もその最大HPまで回復する(被弾3回余分に耐えられる)', () => {
+    const stage = buildStage();
+    const baseStats = derivePlayerStats(zeroUpgradeLevels());
+    const hpStats = derivePlayerStats({ ...zeroUpgradeLevels(), hp: 3 });
+
+    const baseState = createGameState(stage, [], new Set(), baseStats);
+    const hpState = createGameState(stage, [], new Set(), hpStats);
+
+    expect(baseState.jumpman.hp).toBe(JUMPMAN_MAX_HP); // 5(基礎値と一致)
+    expect(hpState.jumpman.hp).toBe(JUMPMAN_MAX_HP + 3); // 8
+    expect(hpState.jumpman.hp - baseState.jumpman.hp).toBe(3); // 被弾3回余分に耐えられる差分
+
+    // 死亡→チェックポイント復帰後も、強化後の最大HP(8)まで回復する
+    // (playerStatsがGameStateに保持され、respawnのたびに参照されることの確認)
+    const dead = { ...hpState, jumpman: { ...hpState.jumpman, hp: 0 } };
+    const respawned = update(dead, [], FIXED_DT);
+    expect(respawned.jumpman.hp).toBe(8);
+  });
+
+  it('jump lv10: ジャンプ初速がJUMP_VELOCITY×2になり、createGameStateの初期jumpmanに反映される', () => {
+    const stage = buildStage();
+    const jumpStats = derivePlayerStats({ ...zeroUpgradeLevels(), jump: 10 });
+    const state = createGameState(stage, [], new Set(), jumpStats);
+    // 初期状態(接地前)のvelocity.xはrunSpeed基準。jumpVelocityは実際にジャンプが
+    // 発火した際にupdateJumpman内で使われる値なので、ここではPlayerStats自体の値を確認する。
+    expect(state.playerStats.jumpVelocity).toBe(jumpStats.jumpVelocity);
+    expect(state.playerStats.jumpVelocity).toBeLessThan(0); // 上方向(負)のまま
+  });
+
+  it('manaRegen/manaMaxの強化がステージのマナ設定に反映された状態でGameStateが作られる', () => {
+    const stage = buildStage({ mana: { initial: 10, max: 50, regenPerSec: 1 } });
+    const stats = derivePlayerStats({ ...zeroUpgradeLevels(), manaRegen: 10, manaMax: 10 });
+    expect(stats.manaRegenMultiplier).toBe(3);
+    expect(stats.manaMaxBonus).toBe(50);
+
+    const state = createGameState(stage, [], new Set(), stats);
+    expect(state.mana.max).toBe(100); // 50 + 50
+    expect(state.mana.regenPerSec).toBe(3); // 1 × 3
+    expect(state.mana.current).toBe(10); // initialは変化しない(仕様どおり)
+  });
+
+  it('playerStatsを省略した場合は基礎値(強化レベル0)のまま動作する(既存呼び出しとの互換性)', () => {
+    const state = createGameState(buildStage());
+    expect(state.playerStats).toEqual(derivePlayerStats(zeroUpgradeLevels()));
+    expect(state.jumpman.hp).toBe(JUMPMAN_MAX_HP);
   });
 });

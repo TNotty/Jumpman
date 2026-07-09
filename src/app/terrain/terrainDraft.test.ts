@@ -15,9 +15,9 @@ import { validateTerrainMaster } from '../../data/schema';
 import { BlockType } from '../../core/types';
 
 describe('addTerrain / removeTerrain', () => {
-  it('末尾に追加し、8枠上限で頭打ちになる', () => {
+  it('末尾に追加し、上限で頭打ちになる', () => {
     let master = createBlankTerrainMaster();
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < MAX_TERRAIN_COUNT + 2; i++) {
       master = addTerrain(master);
     }
     expect(master.terrains).toHaveLength(MAX_TERRAIN_COUNT);

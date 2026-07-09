@@ -1,5 +1,5 @@
 // ステージ/地形マスタJSONの型+手書きバリデーション(zod等は不使用)。
-import type { CheckpointDefinition, EnemyDefinition, ManaConfig, StageData, TerrainDefinition, TerrainMaster, Vec2 } from '../core/types';
+import type { CheckpointDefinition, CoinDefinition, EnemyDefinition, ManaConfig, StageData, TerrainDefinition, TerrainMaster, Vec2 } from '../core/types';
 import { EnemyType } from '../core/types';
 
 export interface ValidationSuccess<T> {
@@ -62,6 +62,20 @@ function validateCheckpoints(
     return [];
   }
   return value.map((entry, index) => validatePoint(entry, `checkpoints[${index}]`, width, height, errors));
+}
+
+/**
+ * コイン配置。枚数は5枚を推奨するが、スキーマ自体は0枚以上を許容する(枚数チェックは
+ * エディタ側の警告表示に委ねる)。coinsフィールド自体が無い場合(後方互換: coins追加前の
+ * ステージJSON)は空配列として扱う。
+ */
+function validateCoins(value: unknown, width: number, height: number, errors: string[]): CoinDefinition[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    errors.push('coins は配列である必要があります');
+    return [];
+  }
+  return value.map((entry, index) => validatePoint(entry, `coins[${index}]`, width, height, errors));
 }
 
 function validateEnemies(
@@ -182,6 +196,7 @@ export function validateStage(data: unknown): ValidationResult<StageData> {
   const checkpoints = validateCheckpoints(data['checkpoints'], width, height, errors);
   const enemies = validateEnemies(data['enemies'], width, height, errors);
   const mana = validateMana(data['mana'], errors);
+  const coins = validateCoins(data['coins'], width, height, errors);
 
   const eraseCost = data['eraseCost'];
   if (!isFiniteNumber(eraseCost) || eraseCost < 0) {
@@ -208,6 +223,7 @@ export function validateStage(data: unknown): ValidationResult<StageData> {
       enemies,
       mana,
       eraseCost: eraseCost as number,
+      coins,
     },
   };
 }
@@ -249,11 +265,16 @@ function validateTerrainDefinition(value: unknown, index: number, errors: string
   const name = value['name'];
   const cost = value['cost'];
   const unlocked = value['unlocked'];
+  // unlockCost は後方互換のため無ければ0扱い(既存の同梱terrainMaster.jsonにこのフィールドが
+  // 追加される前のカスタムJSON・オートセーブ済みドラフトを読み込んでも壊れないようにするため)。
+  const unlockCostRaw = value['unlockCost'];
+  const unlockCost = unlockCostRaw === undefined ? 0 : unlockCostRaw;
 
   if (!isNonEmptyString(id)) errors.push(`${field}.id は空でない文字列である必要があります`);
   if (!isNonEmptyString(name)) errors.push(`${field}.name は空でない文字列である必要があります`);
   if (!isFiniteNumber(cost) || cost < 0) errors.push(`${field}.cost は0以上の数値である必要があります`);
   if (typeof unlocked !== 'boolean') errors.push(`${field}.unlocked は真偽値である必要があります`);
+  if (!isFiniteNumber(unlockCost) || unlockCost < 0) errors.push(`${field}.unlockCost は0以上の数値である必要があります`);
 
   const grid = validateTerrainGrid(value['grid'], field, errors);
 
@@ -263,12 +284,14 @@ function validateTerrainDefinition(value: unknown, index: number, errors: string
     !isFiniteNumber(cost) ||
     cost < 0 ||
     typeof unlocked !== 'boolean' ||
+    !isFiniteNumber(unlockCost) ||
+    unlockCost < 0 ||
     grid.length === 0
   ) {
     return null;
   }
 
-  return { id, name, cost, unlocked, grid };
+  return { id, name, cost, unlocked, unlockCost, grid };
 }
 
 /** 未検証の値(JSON.parse直後)を地形マスタデータとして検証する */

@@ -13,5 +13,6 @@
   "block_spike": { "src": "blocks/spike.svg", "frameW": 32, "frameH": 32, "frames": 1 },
   "block_falling": { "src": "blocks/falling.svg", "frameW": 32, "frameH": 32, "frames": 1 },
   "goal_flag": { "src": "flags/goal.svg", "frameW": 32, "frameH": 48, "frames": 1 },
-  "checkpoint_flag": { "src": "flags/checkpoint.svg", "frameW": 32, "frameH": 48, "frames": 1 }
+  "checkpoint_flag": { "src": "flags/checkpoint.svg", "frameW": 32, "frameH": 48, "frames": 1 },
+  "coin": { "src": "items/coin.svg", "frameW": 32, "frameH": 32, "frames": 1 }
 }

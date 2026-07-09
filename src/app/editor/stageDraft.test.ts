@@ -12,6 +12,7 @@ import {
   setTile,
   toStageData,
   toggleCheckpoint,
+  toggleCoin,
   toggleEnemy,
   updateMana,
   updateMeta,
@@ -30,6 +31,7 @@ describe('createBlankDraft', () => {
     expect(draft.goal).toBeNull();
     expect(draft.checkpoints).toEqual([]);
     expect(draft.enemies).toEqual([]);
+    expect(draft.coins).toEqual([]);
   });
 });
 
@@ -83,13 +85,37 @@ describe('toggleCheckpoint / toggleEnemy', () => {
   });
 });
 
+describe('toggleCoin', () => {
+  it('同じセルをもう一度指定すると削除される(トグル、クリック単発配置)', () => {
+    let draft = createBlankDraft('s1', 10, 5);
+    draft = toggleCoin(draft, { x: 4, y: 2 });
+    expect(draft.coins).toEqual([{ x: 4, y: 2 }]);
+    draft = toggleCoin(draft, { x: 4, y: 2 });
+    expect(draft.coins).toEqual([]);
+  });
+
+  it('範囲外は無視される(同一参照を返す)', () => {
+    const draft = createBlankDraft('s1', 10, 5);
+    const result = toggleCoin(draft, { x: 99, y: 99 });
+    expect(result).toBe(draft);
+  });
+
+  it('複数のコインを独立に配置できる', () => {
+    let draft = createBlankDraft('s1', 10, 5);
+    draft = toggleCoin(draft, { x: 1, y: 1 });
+    draft = toggleCoin(draft, { x: 5, y: 3 });
+    expect(draft.coins).toEqual([{ x: 1, y: 1 }, { x: 5, y: 3 }]);
+  });
+});
+
 describe('eraseAt', () => {
-  it('ブロック・スタート/ゴール/チェックポイント/敵をまとめて消去する', () => {
+  it('ブロック・スタート/ゴール/チェックポイント/敵/コインをまとめて消去する', () => {
     let draft = createBlankDraft('s1', 10, 5);
     draft = setTile(draft, 3, 3, BlockType.Normal);
     draft = setStart(draft, { x: 3, y: 3 });
     draft = toggleCheckpoint(draft, { x: 3, y: 3 });
     draft = toggleEnemy(draft, { x: 3, y: 3 }, EnemyType.Slime);
+    draft = toggleCoin(draft, { x: 3, y: 3 });
 
     draft = eraseAt(draft, { x: 3, y: 3 });
 
@@ -97,6 +123,7 @@ describe('eraseAt', () => {
     expect(draft.start).toBeNull();
     expect(draft.checkpoints).toEqual([]);
     expect(draft.enemies).toEqual([]);
+    expect(draft.coins).toEqual([]);
   });
 });
 
@@ -190,10 +217,12 @@ describe('toStageData', () => {
     seed = setGoal(seed, { x: 7, y: 4 });
     seed = toggleCheckpoint(seed, { x: 3, y: 4 });
     seed = toggleEnemy(seed, { x: 4, y: 4 }, EnemyType.Bird);
+    seed = toggleCoin(seed, { x: 2, y: 4 });
 
     const firstResult = toStageData(seed);
     expect(firstResult.ok).toBe(true);
     if (!firstResult.ok || !firstResult.value) return;
+    expect(firstResult.value.coins).toEqual([{ x: 2, y: 4 }]);
 
     const reloaded = fromStageData(firstResult.value);
     const secondResult = toStageData(reloaded);
@@ -212,6 +241,12 @@ describe('isStageDraftLike', () => {
     expect(isStageDraftLike('not an object')).toBe(false);
     expect(isStageDraftLike({})).toBe(false);
     expect(isStageDraftLike({ id: 's1', name: 'x' })).toBe(false); // 他フィールド欠落
+  });
+
+  it('coinsフィールドが無い(coins追加前の)古いオートセーブ形は拒否する(空配列へのフォールバックに委ねる)', () => {
+    const legacyWithoutCoins = { ...createBlankDraft('s1', 5, 5) } as Record<string, unknown>;
+    delete legacyWithoutCoins['coins'];
+    expect(isStageDraftLike(legacyWithoutCoins)).toBe(false);
   });
 });
 

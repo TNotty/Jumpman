@@ -66,6 +66,7 @@ function main(): void {
   const nameInput = requireElement<HTMLInputElement>('field-name');
   const costInput = requireElement<HTMLInputElement>('field-cost');
   const unlockedInput = requireElement<HTMLInputElement>('field-unlocked');
+  const unlockCostInput = requireElement<HTMLInputElement>('field-unlock-cost');
   const gridWidthInput = requireElement<HTMLInputElement>('field-grid-width');
   const gridHeightInput = requireElement<HTMLInputElement>('field-grid-height');
 
@@ -115,7 +116,7 @@ function main(): void {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = index === selectedIndex ? 'terrain-item selected' : 'terrain-item';
-      btn.textContent = `${index + 1}. ${terrain.name}${terrain.unlocked ? '' : '(未解放)'}`;
+      btn.textContent = `${index + 1}. ${terrain.name}${terrain.unlocked ? '' : `(未解放・要${terrain.unlockCost}枚)`}`;
       btn.addEventListener('click', () => {
         selectedIndex = index;
         syncAll();
@@ -180,7 +181,7 @@ function main(): void {
   const syncFormFromSelected = (): void => {
     const terrain = master.terrains[selectedIndex];
     const disabled = !terrain;
-    for (const input of [idInput, nameInput, costInput, unlockedInput, gridWidthInput, gridHeightInput]) {
+    for (const input of [idInput, nameInput, costInput, unlockedInput, unlockCostInput, gridWidthInput, gridHeightInput]) {
       input.disabled = disabled;
     }
     if (!terrain) return;
@@ -188,6 +189,7 @@ function main(): void {
     nameInput.value = terrain.name;
     costInput.value = String(terrain.cost);
     unlockedInput.checked = terrain.unlocked;
+    unlockCostInput.value = String(terrain.unlockCost);
     gridWidthInput.value = String(terrain.grid[0]?.length ?? 1);
     gridHeightInput.value = String(terrain.grid.length);
   };
@@ -252,6 +254,10 @@ function main(): void {
     renderList();
     renderGridCanvas();
     renderPalettePreview();
+    markDirty();
+  });
+  unlockCostInput.addEventListener('change', () => {
+    master = updateTerrainMeta(master, selectedIndex, { unlockCost: Number(unlockCostInput.value) });
     markDirty();
   });
   gridWidthInput.addEventListener('change', () => {

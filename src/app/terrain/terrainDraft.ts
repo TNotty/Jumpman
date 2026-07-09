@@ -5,7 +5,9 @@ import { validateTerrainMaster } from '../../data/schema';
 import { BLOCK_CHAR_MAP, BLOCK_TYPE_CHAR, BlockType } from '../../core/types';
 import type { TerrainDefinition, TerrainMaster } from '../../core/types';
 
-export const MAX_TERRAIN_COUNT = 8;
+// v5-1でterrainMaster.jsonが「ゲームパレット(loadoutが指す8枠)」から「解放カタログ全体」に
+// 意味が変わったため、8枠だった上限を将来の追加も見込んで拡張する(現在の同梱カタログは18種)。
+export const MAX_TERRAIN_COUNT = 24;
 export const MAX_TERRAIN_GRID_SIZE = 8;
 export const MIN_TERRAIN_GRID_SIZE = 1;
 
@@ -31,6 +33,7 @@ export function createBlankTerrain(existing: readonly TerrainDefinition[] = []):
     name: '新しい地形',
     cost: 1,
     unlocked: true,
+    unlockCost: 0,
     grid: ['N'],
   };
 }
@@ -64,7 +67,7 @@ export function moveTerrain(master: TerrainMaster, index: number, direction: 1 |
 export function updateTerrainMeta(
   master: TerrainMaster,
   index: number,
-  patch: Partial<Pick<TerrainDefinition, 'id' | 'name' | 'cost' | 'unlocked'>>,
+  patch: Partial<Pick<TerrainDefinition, 'id' | 'name' | 'cost' | 'unlocked' | 'unlockCost'>>,
 ): TerrainMaster {
   const target = master.terrains[index];
   if (!target) return master;

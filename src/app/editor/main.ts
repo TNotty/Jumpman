@@ -16,6 +16,7 @@ import { applyPinchZoom, pinchStateFromPoints } from './pinchZoom';
 import type { PixelSize } from './canvasResize';
 import { computeBackingStoreSize, needsResize } from './canvasResize';
 import {
+  RECOMMENDED_COIN_COUNT,
   createBlankDraft,
   eraseAt,
   fromStageData,
@@ -28,6 +29,7 @@ import {
   setTile,
   toStageData,
   toggleCheckpoint,
+  toggleCoin,
   toggleEnemy,
   updateMana,
   updateMeta,
@@ -226,6 +228,10 @@ function main(): void {
       const p = tileToScreen(enemy.x, enemy.y);
       drawSprite(ctx, assets, enemySpriteName(enemy.type), 0, p.x, p.y, tilePx, tilePx);
     }
+    for (const coin of draft.coins) {
+      const p = tileToScreen(coin.x, coin.y);
+      drawSprite(ctx, assets, 'coin', 0, p.x, p.y, tilePx, tilePx);
+    }
 
     if (hoverTile) {
       const p = tileToScreen(hoverTile.x, hoverTile.y);
@@ -285,6 +291,18 @@ function main(): void {
     errorsEl.textContent = '';
   }
 
+  /**
+   * コインが推奨枚数(5枚)でない場合に警告を表示する(保存/テストプレイ自体はブロックしない)。
+   * 5枚ちょうどならエラー表示をクリアする。
+   */
+  function showCoinCountWarningOrClear(): void {
+    if (draft.coins.length === RECOMMENDED_COIN_COUNT) {
+      clearErrors();
+      return;
+    }
+    showErrors([`コインが${RECOMMENDED_COIN_COUNT}枚ではありません(現在${draft.coins.length}枚)。保存/テストプレイは可能です。`]);
+  }
+
   function syncFormFromDraft(): void {
     idInput.value = draft.id;
     nameInput.value = draft.name;
@@ -332,6 +350,8 @@ function main(): void {
       draft = setGoal(draft, point);
     } else if (currentTool === EditorTool.Checkpoint) {
       draft = toggleCheckpoint(draft, point);
+    } else if (currentTool === EditorTool.Coin) {
+      draft = toggleCoin(draft, point);
     } else {
       const enemyType = enemyTypeForTool(currentTool);
       if (enemyType !== null) {
@@ -634,7 +654,7 @@ function main(): void {
       showErrors(result.errors);
       return;
     }
-    clearErrors();
+    showCoinCountWarningOrClear();
     downloadJSON(`${draft.id || 'stage'}.json`, result.value);
   });
 
@@ -683,7 +703,7 @@ function main(): void {
       showErrors(result.errors);
       return;
     }
-    clearErrors();
+    showCoinCountWarningOrClear();
     saveJSON(DRAFT_STAGE_STORAGE_KEY, result.value);
     openGameDraft();
   });

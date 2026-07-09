@@ -13,6 +13,7 @@ export enum EditorTool {
   EnemySlime = 'enemy_slime',
   EnemyFrog = 'enemy_frog',
   EnemyBird = 'enemy_bird',
+  Coin = 'coin',
 }
 
 /** パレット表示順。先頭9件が数字キー1〜9に対応する */
@@ -28,6 +29,9 @@ export const TOOL_ORDER: readonly EditorTool[] = [
   EditorTool.EnemySlime,
   EditorTool.EnemyFrog,
   EditorTool.EnemyBird,
+  // Coinは末尾に追加(数字キー1-9は先頭9件のみに対応するため、既存ツールのキー割り当てを
+  // ずらさないようにする。マウス/タップでのみ選択する)。
+  EditorTool.Coin,
 ];
 
 export const TOOL_LABEL: Readonly<Record<EditorTool, string>> = {
@@ -42,6 +46,7 @@ export const TOOL_LABEL: Readonly<Record<EditorTool, string>> = {
   [EditorTool.EnemySlime]: 'スライム',
   [EditorTool.EnemyFrog]: 'カエル',
   [EditorTool.EnemyBird]: '鳥',
+  [EditorTool.Coin]: 'コイン',
 };
 
 const BLOCK_TOOL_TYPE: Partial<Record<EditorTool, BlockType>> = {

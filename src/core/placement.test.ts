@@ -7,9 +7,9 @@ import type { AABB, EnemyState, ManaState, TerrainDefinition } from './types';
 const MANA: ManaState = { current: 10, max: 50, regenPerSec: 1 };
 const JUMPMAN_AABB: AABB = { x: 0, y: 0, w: 0.6, h: 1.5 }; // グリッドから離れた位置(重ならない)
 
-const H3: TerrainDefinition = { id: 'h3', name: '横3マス', cost: 3, unlocked: true, grid: ['NNN'] };
-const U_SHAPE: TerrainDefinition = { id: 'u', name: 'コの字', cost: 5, unlocked: true, grid: ['NNN', 'N.N'] };
-const LOCKED: TerrainDefinition = { id: 'locked', name: 'ロック中', cost: 1, unlocked: false, grid: ['N'] };
+const H3: TerrainDefinition = { id: 'h3', name: '横3マス', cost: 3, unlocked: true, unlockCost: 0, grid: ['NNN'] };
+const U_SHAPE: TerrainDefinition = { id: 'u', name: 'コの字', cost: 5, unlocked: true, unlockCost: 0, grid: ['NNN', 'N.N'] };
+const LOCKED: TerrainDefinition = { id: 'locked', name: 'ロック中', cost: 1, unlocked: false, unlockCost: 5, grid: ['N'] };
 
 function makeEnemy(x: number, y: number, alive = true): EnemyState {
   return {

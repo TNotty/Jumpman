@@ -2,7 +2,6 @@
 import {
   GAME_AREA_HEIGHT,
   JUMPMAN_HEIGHT,
-  JUMPMAN_MAX_HP,
   JUMPMAN_WIDTH,
   LOGICAL_HEIGHT,
   LOGICAL_WIDTH,
@@ -115,6 +114,30 @@ function drawFlags(
   }
 }
 
+/**
+ * コインを描画する。取得済み(永続取得済み・今回のセッションで新規取得済みのいずれか)は
+ * 半透明にする(永続取得済みは重なってもwalletが増えないことの見た目上の合図、
+ * 新規取得済みは「取った」ことのフィードバック)。軽い上下ふわふわアニメをanimTimeで付ける。
+ */
+function drawCoins(
+  ctx: CanvasRenderingContext2D,
+  assets: AssetStore,
+  state: GameState,
+  camera: CameraState,
+  animTime: number,
+): void {
+  state.coins.forEach((coin, index) => {
+    const taken = coin.permanentlyCollected || coin.collectedThisSession;
+    const bob = Math.sin(animTime * 3 + index) * 3;
+    const destX = coin.x * TILE_SIZE - camera.x;
+    const destY = coin.y * TILE_SIZE - camera.y + bob;
+    ctx.save();
+    ctx.globalAlpha = taken ? 0.35 : 1;
+    drawSprite(ctx, assets, 'coin', 0, destX, destY, TILE_SIZE, TILE_SIZE);
+    ctx.restore();
+  });
+}
+
 function drawEnemies(
   ctx: CanvasRenderingContext2D,
   assets: AssetStore,
@@ -155,20 +178,38 @@ function drawJumpman(
   ctx.restore();
 }
 
-function drawHud(ctx: CanvasRenderingContext2D, state: GameState): void {
+/**
+ * HP表示の直下に所持コイン数(コインアイコン+数値)を描く。walletCountはセーブデータ由来の値を
+ * app層が渡す(core/GameStateはwalletを持たない=セーブの概念を知らないため)。
+ */
+function drawHud(ctx: CanvasRenderingContext2D, state: GameState, walletCount: number): void {
   ctx.save();
   ctx.font = '20px sans-serif';
   ctx.fillStyle = '#ffffff';
   ctx.textBaseline = 'top';
   ctx.fillText('HP', 12, 10);
 
+  // 最大HPは強化(hp)で5〜15まで変わるため、定数ではなくstate.playerStats.maxHp(実効値)を使う。
   const heartSize = 18;
-  for (let i = 0; i < JUMPMAN_MAX_HP; i++) {
+  for (let i = 0; i < state.playerStats.maxHp; i++) {
     const x = 48 + i * (heartSize + 4);
     const y = 10;
     ctx.fillStyle = i < state.jumpman.hp ? '#e74c3c' : '#4a4a4a';
     ctx.fillRect(x, y, heartSize, heartSize);
   }
+
+  const coinRowY = 10 + heartSize + 8;
+  ctx.fillStyle = '#f1c40f';
+  ctx.beginPath();
+  ctx.arc(21, coinRowY + 9, 9, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#a9720a';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '18px sans-serif';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(String(walletCount), 40, coinRowY + 10);
   ctx.restore();
 }
 
@@ -223,19 +264,38 @@ export function drawTerrainShapePreview(
 
 /**
  * パレット8枠(形状プレビュー・コスト・選択枠・ロック表示)を描画する。
- * ゲーム本体(GameState経由)と地形マスタエディタ(プレーンな配列)の双方から再利用する。
+ * ゲーム本体(GameState経由。loadout由来で空枠はnull)と地形マスタエディタ(プレーンな配列)の
+ * 双方から再利用する。null(空枠)は選択不可であることが分かる専用の見た目で描く。
  */
 export function drawPaletteSlots(
   ctx: CanvasRenderingContext2D,
-  terrains: readonly TerrainDefinition[],
+  terrains: readonly (TerrainDefinition | null)[],
   selectedSlot: PaletteSlot,
 ): void {
   const count = Math.min(PALETTE_SLOT_COUNT, terrains.length);
   for (let i = 0; i < count; i++) {
     const terrain = terrains[i];
-    if (!terrain) continue;
     const rect = paletteSlotRect(i);
     const selected = i === selectedSlot;
+
+    if (!terrain) {
+      // 空枠(loadoutの未設定スロット): 選択不可であることが分かる控えめな見た目にする
+      ctx.save();
+      ctx.fillStyle = '#161616';
+      ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+      ctx.strokeStyle = '#3a3a3a';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.strokeRect(rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2);
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#555555';
+      ctx.font = '12px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('空き', rect.x + rect.w / 2, rect.y + rect.h / 2);
+      ctx.restore();
+      continue;
+    }
 
     ctx.save();
     ctx.fillStyle = terrain.unlocked ? '#2b2b2b' : '#1a1a1a';
@@ -429,7 +489,10 @@ function drawClearOverlay(ctx: CanvasRenderingContext2D): void {
   ctx.restore();
 }
 
-/** ゲーム画面全体を描画する唯一の入口 */
+/**
+ * ゲーム画面全体を描画する唯一の入口。
+ * walletCount: セーブデータ由来の所持コイン総数(HUD表示用)。app層が渡す(coreはセーブを知らない)。
+ */
 export function renderGame(
   ctx: CanvasRenderingContext2D,
   assets: AssetStore,
@@ -437,6 +500,7 @@ export function renderGame(
   camera: CameraState,
   animTime: number,
   hoverTile: { x: number; y: number } | null = null,
+  walletCount = 0,
 ): void {
   ctx.clearRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
 
@@ -451,6 +515,7 @@ export function renderGame(
   drawTiles(ctx, assets, state, camera);
   drawFallingBlocks(ctx, assets, state, camera);
   drawFlags(ctx, assets, state, camera);
+  drawCoins(ctx, assets, state, camera, animTime);
   drawEnemies(ctx, assets, state, camera, animTime);
   drawJumpman(ctx, assets, state, camera, animTime);
   if (state.status !== GameStatus.Cleared) {
@@ -459,7 +524,7 @@ export function renderGame(
 
   ctx.restore();
 
-  drawHud(ctx, state);
+  drawHud(ctx, state, walletCount);
   drawPaletteArea(ctx, state);
 
   if (state.status === GameStatus.Cleared) {

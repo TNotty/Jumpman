@@ -547,9 +547,10 @@
             <label>ID<input type="text" id="field-id" /></label>
             <label>名前<input type="text" id="field-name" /></label>
             <div class="row">
-              <label>コスト<input type="number" id="field-cost" min="0" /></label>
+              <label>コスト(マナ)<input type="number" id="field-cost" min="0" /></label>
               <label><input type="checkbox" id="field-unlocked" /> 解放済み</label>
             </div>
+            <label>解放コスト(コイン。解放済みなら意味を持たない)<input type="number" id="field-unlock-cost" min="0" /></label>
             <div class="row">
               <label>グリッド幅(最大8)<input type="number" id="field-grid-width" min="1" max="8" /></label>
               <label>グリッド高さ(最大8)<input type="number" id="field-grid-height" min="1" max="8" /></label>
