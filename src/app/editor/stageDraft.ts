@@ -263,3 +263,40 @@ export function isStageDraftLike(value: unknown): value is StageDraft {
     typeof v['eraseCost'] === 'number'
   );
 }
+
+export interface ResolveInitialDraftResult {
+  draft: StageDraft;
+  /** localStorageの editRequest キーを消去すべきか(存在した場合は成否に関わらず常にtrue) */
+  shouldClearEditRequest: boolean;
+  /** editRequestの検証に失敗した場合の警告文言(UIに表示する用)。無ければnull */
+  warning: string | null;
+}
+
+/**
+ * エディタ起動時、どのデータを初期ドラフトとして採用するかを決める純ロジック。
+ * 優先順位: editRequest(ゲーム側の「エディタで開く」由来。あれば最優先で消去対象) →
+ * オートセーブ(localStorage) → 空の新規ドラフト。
+ * editRequestが存在すれば検証の成否に関わらず shouldClearEditRequest=true を返す
+ * (壊れたeditRequestが残り続けて毎回警告が出るのを防ぎ、通常起動を汚さないため)。
+ */
+export function resolveInitialDraft(editRequestRaw: unknown, autosavedRaw: unknown): ResolveInitialDraftResult {
+  if (editRequestRaw !== null && editRequestRaw !== undefined) {
+    const result = validateStage(editRequestRaw);
+    if (result.ok) {
+      return { draft: fromStageData(result.value), shouldClearEditRequest: true, warning: null };
+    }
+    return {
+      draft: resolveFromAutosave(autosavedRaw),
+      shouldClearEditRequest: true,
+      warning: `編集リクエストの読込に失敗したため、下書き/新規を使用します: ${result.errors.join(', ')}`,
+    };
+  }
+  return { draft: resolveFromAutosave(autosavedRaw), shouldClearEditRequest: false, warning: null };
+}
+
+function resolveFromAutosave(autosavedRaw: unknown): StageDraft {
+  if (autosavedRaw !== null && autosavedRaw !== undefined && isStageDraftLike(autosavedRaw)) {
+    return autosavedRaw;
+  }
+  return createBlankDraft();
+}

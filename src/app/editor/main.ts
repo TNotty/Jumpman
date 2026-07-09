@@ -7,8 +7,8 @@ import stage02Raw from '../../data/stages/stage02.json';
 import { AssetStore, loadAssets } from '../../render/assets';
 import { blockSpriteName, enemySpriteName } from '../../render/renderer';
 import { drawSprite } from '../../render/sprites';
-import { downloadJSON, loadJSON, readJSONFile, saveJSON } from '../../platform/storage';
-import { DRAFT_STAGE_STORAGE_KEY } from '../game/main';
+import { downloadJSON, loadJSON, readJSONFile, removeJSON, saveJSON } from '../../platform/storage';
+import { DRAFT_STAGE_STORAGE_KEY, EDIT_REQUEST_STORAGE_KEY } from '../game/main';
 import { EditorTool, TOOL_LABEL, TOOL_ORDER, blockTypeForTool, enemyTypeForTool, isPaintTool, toolFromKey } from './paletteTool';
 import {
   createBlankDraft,
@@ -17,6 +17,7 @@ import {
   getTile,
   isStageDraftLike,
   resizeDraft,
+  resolveInitialDraft,
   setGoal,
   setStart,
   setTile,
@@ -483,9 +484,20 @@ function main(): void {
   });
 
   // --- 起動 -----------------------------------------------------------------
+  // 優先順位: editRequest(ゲーム側「エディタで開く」由来) → オートセーブ → 新規。
+  // editRequestは存在すれば成否を問わず消去し、通常起動(次回以降のリロード)を汚さない。
 
-  const autosaved = loadJSON<unknown>(EDITOR_AUTOSAVE_KEY);
-  draft = autosaved !== null && isStageDraftLike(autosaved) ? autosaved : createBlankDraft();
+  const editRequestRaw = loadJSON<unknown>(EDIT_REQUEST_STORAGE_KEY);
+  const autosavedRaw = loadJSON<unknown>(EDITOR_AUTOSAVE_KEY);
+  const initial = resolveInitialDraft(editRequestRaw, autosavedRaw);
+  draft = initial.draft;
+  if (initial.shouldClearEditRequest) {
+    removeJSON(EDIT_REQUEST_STORAGE_KEY);
+  }
+  if (initial.warning) {
+    showErrors([initial.warning]);
+    console.warn(initial.warning);
+  }
   syncFormFromDraft();
   renderPalette();
 

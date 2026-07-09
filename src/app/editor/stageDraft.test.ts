@@ -6,6 +6,7 @@ import {
   getTile,
   isStageDraftLike,
   resizeDraft,
+  resolveInitialDraft,
   setGoal,
   setStart,
   setTile,
@@ -17,6 +18,7 @@ import {
 } from './stageDraft';
 import { validateStage } from '../../data/schema';
 import { BlockType, EnemyType } from '../../core/types';
+import type { StageData } from '../../core/types';
 
 describe('createBlankDraft', () => {
   it('指定サイズの空タイル・未配置のスタート/ゴールで初期化する', () => {
@@ -210,5 +212,70 @@ describe('isStageDraftLike', () => {
     expect(isStageDraftLike('not an object')).toBe(false);
     expect(isStageDraftLike({})).toBe(false);
     expect(isStageDraftLike({ id: 's1', name: 'x' })).toBe(false); // 他フィールド欠落
+  });
+});
+
+describe('resolveInitialDraft', () => {
+  function validStageDataRaw(id: string): StageData {
+    let draft = createBlankDraft(id, 6, 4);
+    draft = setTile(draft, 0, 3, BlockType.Normal);
+    draft = setTile(draft, 5, 3, BlockType.Normal);
+    draft = setStart(draft, { x: 0, y: 2 });
+    draft = setGoal(draft, { x: 5, y: 2 });
+    const result = toStageData(draft);
+    if (!result.ok || !result.value) throw new Error('test fixture is invalid');
+    return result.value;
+  }
+
+  it('editRequestが妥当なら最優先で採用し、消去対象になる(オートセーブが別にあっても無視する)', () => {
+    const editRequest = validStageDataRaw('from_edit_request');
+    const autosaved = createBlankDraft('from_autosave', 8, 8);
+
+    const result = resolveInitialDraft(editRequest, autosaved);
+
+    expect(result.draft.id).toBe('from_edit_request');
+    expect(result.shouldClearEditRequest).toBe(true);
+    expect(result.warning).toBeNull();
+  });
+
+  it('editRequestが不正なら警告を出し、オートセーブへフォールバックする(editRequestは消去対象のまま)', () => {
+    const invalidEditRequest = { not: 'a valid stage' };
+    const autosaved = createBlankDraft('from_autosave', 8, 8);
+
+    const result = resolveInitialDraft(invalidEditRequest, autosaved);
+
+    expect(result.draft.id).toBe('from_autosave');
+    expect(result.shouldClearEditRequest).toBe(true);
+    expect(result.warning).not.toBeNull();
+  });
+
+  it('editRequestが不正でオートセーブも無ければ、新規の空ドラフトにフォールバックする', () => {
+    const invalidEditRequest = { not: 'a valid stage' };
+
+    const result = resolveInitialDraft(invalidEditRequest, null);
+
+    expect(result.draft.start).toBeNull();
+    expect(result.draft.goal).toBeNull();
+    expect(result.shouldClearEditRequest).toBe(true);
+    expect(result.warning).not.toBeNull();
+  });
+
+  it('editRequestが無ければオートセーブを採用し、消去対象にはならない', () => {
+    const autosaved = createBlankDraft('from_autosave', 8, 8);
+
+    const result = resolveInitialDraft(null, autosaved);
+
+    expect(result.draft.id).toBe('from_autosave');
+    expect(result.shouldClearEditRequest).toBe(false);
+    expect(result.warning).toBeNull();
+  });
+
+  it('editRequestもオートセーブも無ければ、新規の空ドラフトになり消去対象にはならない', () => {
+    const result = resolveInitialDraft(null, null);
+
+    expect(result.draft.start).toBeNull();
+    expect(result.draft.goal).toBeNull();
+    expect(result.shouldClearEditRequest).toBe(false);
+    expect(result.warning).toBeNull();
   });
 });

@@ -25,13 +25,19 @@ import {
 } from '../../render/screens';
 import type { StageMeta } from '../../render/screens';
 import { InputManager } from '../../input/input';
-import { loadJSON } from '../../platform/storage';
+import { loadJSON, saveJSON } from '../../platform/storage';
 import { createLoop } from '../loop';
 
 /** マップエディタ(Phase C)がテストプレイ用のdraftステージを書き込むキー */
 export const DRAFT_STAGE_STORAGE_KEY = 'jumpman:draftStage';
 /** 地形マスタエディタ(Phase C)がカスタム地形マスタを書き込むキー。存在すれば同梱JSONより優先する */
 export const TERRAIN_MASTER_STORAGE_KEY = 'jumpman:terrainMaster';
+/**
+ * プレイ中に「エディタで開く」を押した際、ゲーム側がそのステージの元StageData
+ * (プレイヤーが地形生成/消去で変化させたグリッドではない、プレイ開始時点のもの)を
+ * 書き込むキー。editor.html はこのキーを検査し、あれば読み込んでからキーを削除する。
+ */
+export const EDIT_REQUEST_STORAGE_KEY = 'jumpman:editRequest';
 
 interface StageEntry {
   id: string;
@@ -41,8 +47,69 @@ interface StageEntry {
 type Scene =
   | { kind: 'title' }
   | { kind: 'stageSelect' }
-  | { kind: 'playing'; stageIndex: number; game: GameState; camera: CameraState }
+  | { kind: 'playing'; stageIndex: number; stageData: StageData; game: GameState; camera: CameraState }
   | { kind: 'clear'; stageIndex: number; game: GameState; camera: CameraState };
+
+interface DevOverlayHandles {
+  titleLinksEl: HTMLDivElement;
+  playingButton: HTMLButtonElement;
+  /** シーン切替時のみDOMのstyleを書き換える(同じシーン種別なら何もしない) */
+  sync: (sceneKind: Scene['kind']) => void;
+}
+
+const DEV_OVERLAY_LINK_STYLE =
+  'background:rgba(0,0,0,0.55); color:#fff; padding:4px 8px; border-radius:4px; ' +
+  'text-decoration:none; border:1px solid rgba(255,255,255,0.35); font-family:sans-serif; font-size:12px;';
+
+/**
+ * 開発限定のDOMオーバーレイ(タイトルのエディタリンク・プレイ中の「エディタで開く」ボタン)を
+ * 1度だけ生成する。canvas内描画ではなくDOM要素にすることで、canvasのヒットテストを複雑化させない。
+ * 呼び出し元(main())が import.meta.env.DEV でガードするため、本番ビルドではこの関数自体が
+ * 呼ばれない(=生成されない)。
+ */
+function createDevOverlay(): DevOverlayHandles {
+  const container = document.createElement('div');
+  container.style.cssText =
+    'position:fixed; top:8px; right:8px; z-index:1000; display:flex; flex-direction:column; ' +
+    'align-items:flex-end; gap:4px; pointer-events:none;';
+
+  const titleLinksEl = document.createElement('div');
+  titleLinksEl.style.cssText = 'display:none; gap:6px; pointer-events:auto;';
+
+  const editorLink = document.createElement('a');
+  editorLink.href = '/editor.html';
+  editorLink.target = '_blank';
+  editorLink.rel = 'noopener';
+  editorLink.textContent = 'マップエディタ';
+  editorLink.style.cssText = DEV_OVERLAY_LINK_STYLE;
+
+  const terrainLink = document.createElement('a');
+  terrainLink.href = '/terrain.html';
+  terrainLink.target = '_blank';
+  terrainLink.rel = 'noopener';
+  terrainLink.textContent = '地形エディタ';
+  terrainLink.style.cssText = DEV_OVERLAY_LINK_STYLE;
+
+  titleLinksEl.append(editorLink, terrainLink);
+
+  const playingButton = document.createElement('button');
+  playingButton.type = 'button';
+  playingButton.textContent = 'エディタで開く';
+  playingButton.style.cssText = `${DEV_OVERLAY_LINK_STYLE} display:none; cursor:pointer; pointer-events:auto;`;
+
+  container.append(titleLinksEl, playingButton);
+  document.body.appendChild(container);
+
+  let lastSceneKind: Scene['kind'] | null = null;
+  const sync = (sceneKind: Scene['kind']): void => {
+    if (sceneKind === lastSceneKind) return;
+    lastSceneKind = sceneKind;
+    titleLinksEl.style.display = sceneKind === 'title' ? 'flex' : 'none';
+    playingButton.style.display = sceneKind === 'playing' ? 'inline-block' : 'none';
+  };
+
+  return { titleLinksEl, playingButton, sync };
+}
 
 function getCanvas(): HTMLCanvasElement {
   const canvas = document.getElementById('game-canvas');
@@ -120,7 +187,16 @@ async function main(): Promise<void> {
   }
 
   function startPlaying(stageData: StageData, stageIndex: number): Scene {
-    return { kind: 'playing', stageIndex, game: createGameState(stageData, terrainMaster), camera: createCamera() };
+    // stageDataはプレイ開始時点の元データをそのまま保持する(gridは生成/消去で変化するが
+    // stageDataは不変のまま=「エディタで開く」機能がプレイヤーの変更を巻き戻さず、
+    // 常に元のステージ定義を渡せるようにするため)。
+    return {
+      kind: 'playing',
+      stageIndex,
+      stageData,
+      game: createGameState(stageData, terrainMaster),
+      camera: createCamera(),
+    };
   }
 
   function hasNextStage(stageIndex: number): boolean {
@@ -151,6 +227,20 @@ async function main(): Promise<void> {
     () => (scene.kind === 'playing' ? scene.camera : createCamera()),
     terrainMaster,
   );
+
+  // 開発限定UI(タイトルのエディタリンク・プレイ中の「エディタで開く」ボタン)。
+  // import.meta.env.DEV は `vite build` の本番ビルドでは静的に false になるため、
+  // このブロックごと実行されない(=DOM要素も生成されない)。
+  let devOverlay: DevOverlayHandles | null = null;
+  if (import.meta.env.DEV) {
+    devOverlay = createDevOverlay();
+    devOverlay.playingButton.addEventListener('click', () => {
+      if (scene.kind !== 'playing') return;
+      // プレイ開始時点の元StageData(グリッドの変化を含まない)をそのまま渡す。
+      saveJSON(EDIT_REQUEST_STORAGE_KEY, scene.stageData);
+      window.open('/editor.html', '_blank');
+    });
+  }
 
   canvas.addEventListener('click', (event) => {
     const rect = canvas.getBoundingClientRect();
@@ -205,11 +295,12 @@ async function main(): Promise<void> {
         if (nextGame.status === GameStatus.Cleared) {
           scene = { kind: 'clear', stageIndex: scene.stageIndex, game: nextGame, camera: nextCamera };
         } else {
-          scene = { kind: 'playing', stageIndex: scene.stageIndex, game: nextGame, camera: nextCamera };
+          scene = { kind: 'playing', stageIndex: scene.stageIndex, stageData: scene.stageData, game: nextGame, camera: nextCamera };
         }
       }
     },
     render: () => {
+      devOverlay?.sync(scene.kind);
       if (scene.kind === 'title') {
         drawTitleScreen(ctx, Math.floor(animTime * 2) % 2 === 0);
         return;
