@@ -42,15 +42,23 @@ export interface StageMeta {
   theme: string;
 }
 
-const STAGE_BOX_W = 480;
-const STAGE_BOX_H = 90;
-const STAGE_BOX_GAP = 24;
-const STAGE_BOX_TOP = 220;
+// 5ステージ(以上)でも画面(LOGICAL_HEIGHT=768)からはみ出さないよう、縦1列ではなく2列グリッドで
+// 配置する。1枠は480x90のときより大きく(560x100)なり、タッチでも押しやすいサイズを維持する。
+const STAGE_BOX_COLS = 2;
+const STAGE_BOX_W = 560;
+const STAGE_BOX_H = 100;
+const STAGE_BOX_GAP_X = 40;
+const STAGE_BOX_GAP_Y = 20;
+const STAGE_BOX_TOP = 190;
 
 export function stageSelectBoxRect(index: number): Rect {
+  const col = index % STAGE_BOX_COLS;
+  const row = Math.floor(index / STAGE_BOX_COLS);
+  const totalWidth = STAGE_BOX_COLS * STAGE_BOX_W + (STAGE_BOX_COLS - 1) * STAGE_BOX_GAP_X;
+  const startX = (LOGICAL_WIDTH - totalWidth) / 2;
   return {
-    x: (LOGICAL_WIDTH - STAGE_BOX_W) / 2,
-    y: STAGE_BOX_TOP + index * (STAGE_BOX_H + STAGE_BOX_GAP),
+    x: startX + col * (STAGE_BOX_W + STAGE_BOX_GAP_X),
+    y: STAGE_BOX_TOP + row * (STAGE_BOX_H + STAGE_BOX_GAP_Y),
     w: STAGE_BOX_W,
     h: STAGE_BOX_H,
   };

@@ -3,31 +3,48 @@ import { describe, expect, it } from 'vitest';
 import { validateStage, validateTerrainMaster } from './schema';
 import stage01Raw from './stages/stage01.json';
 import stage02Raw from './stages/stage02.json';
+import stage03Raw from './stages/stage03.json';
+import stage04Raw from './stages/stage04.json';
+import stage05Raw from './stages/stage05.json';
 import terrainMasterRaw from './terrainMaster.json';
 
-describe('同梱ステージJSON', () => {
-  it('stage01.json はスキーマに準拠する', () => {
-    const result = validateStage(stage01Raw);
+const STAGES = [
+  { id: 'stage01', raw: stage01Raw, theme: 'grass' },
+  { id: 'stage02', raw: stage02Raw, theme: 'cave' },
+  { id: 'stage03', raw: stage03Raw, theme: 'grass' },
+  { id: 'stage04', raw: stage04Raw, theme: 'cave' },
+  { id: 'stage05', raw: stage05Raw, theme: 'grass' },
+] as const;
+
+describe('同梱ステージJSON(5本、各約600タイル)', () => {
+  it.each(STAGES)('$id はスキーマに準拠し、幅約600・チェックポイント3〜4個を持つ', ({ id, raw, theme }) => {
+    const result = validateStage(raw);
     if (!result.ok) {
-      throw new Error(`stage01.json validation failed: ${result.errors.join(', ')}`);
+      throw new Error(`${id} validation failed: ${result.errors.join(', ')}`);
     }
-    expect(result.ok).toBe(true);
+    expect(result.value.theme).toBe(theme);
+    expect(result.value.width).toBeGreaterThanOrEqual(500);
+    expect(result.value.checkpoints.length).toBeGreaterThanOrEqual(3);
+    expect(result.value.checkpoints.length).toBeLessThanOrEqual(4);
   });
 
-  it('stage02.json はスキーマに準拠する(cave テーマ・敵3種・特殊ブロック・要地形生成箇所を含む)', () => {
+  it('stage02.json は cave テーマで壊れる/トゲ/落ちるブロックをすべて含む', () => {
     const result = validateStage(stage02Raw);
-    if (!result.ok) {
-      throw new Error(`stage02.json validation failed: ${result.errors.join(', ')}`);
-    }
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.value.theme).toBe('cave');
-    expect(result.value.checkpoints).toHaveLength(2);
-    const enemyTypes = new Set(result.value.enemies.map((e) => e.type));
-    expect(enemyTypes.size).toBe(3);
-    expect(result.value.tiles.join('')).toContain('B'); // 壊れるブロック
-    expect(result.value.tiles.join('')).toContain('S'); // トゲ
-    expect(result.value.tiles.join('')).toContain('F'); // 落ちるブロック
+    const joined = result.value.tiles.join('');
+    expect(joined).toContain('B'); // 壊れるブロック
+    expect(joined).toContain('S'); // トゲ
+    expect(joined).toContain('F'); // 落ちるブロック
+  });
+
+  it('stage04.json/stage05.json は stage01.json より敵密度が高い(難易度カーブの確認)', () => {
+    const r1 = validateStage(stage01Raw);
+    const r4 = validateStage(stage04Raw);
+    const r5 = validateStage(stage05Raw);
+    if (!r1.ok || !r4.ok || !r5.ok) throw new Error('validation failed');
+    expect(r4.value.enemies.length).toBeGreaterThan(r1.value.enemies.length);
+    expect(r5.value.enemies.length).toBeGreaterThan(r1.value.enemies.length);
   });
 });
 

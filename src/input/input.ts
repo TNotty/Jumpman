@@ -12,6 +12,7 @@ import { GAME_AREA_HEIGHT, PALETTE_SLOT_COUNT, TILE_SIZE } from '../core/constan
 import type { Command } from '../core/commands';
 import { anchoredBaseTileX } from '../core/placement';
 import type { TouchAnchorSide } from '../core/placement';
+import { classifyScreenPoint } from '../core/screenRegion';
 import type { PaletteSlot, TerrainDefinition } from '../core/types';
 import type { CameraState } from '../render/camera';
 import { eraserSlotRect, paletteSlotRect } from '../render/renderer';
@@ -93,9 +94,11 @@ export class InputManager {
   }
 
   /** 現在のマウス/タッチ位置に対応するワールドタイル座標(ゲーム領域内のときのみ)。配置プレビュー用。
-   * タッチ操作中はtouchAnchorSideを適用した「配置基準タイル」を返す(実際の生成/消去と一致させるため)。 */
+   * タッチ操作中はtouchAnchorSideを適用した「配置基準タイル」を返す(実際の生成/消去と一致させるため)。
+   * 指がゲーム領域外(パレット領域・キャンバスの外)にある間はプレビューを非表示にする。 */
   getHoverTile(): { x: number; y: number } | null {
-    if (!this.lastPoint || this.lastPoint.y >= GAME_AREA_HEIGHT) return null;
+    if (!this.lastPoint) return null;
+    if (classifyScreenPoint(this.lastPoint.x, this.lastPoint.y) !== 'game') return null;
     return this.computeTileFromPoint(this.lastPoint, this.lastInputSource === 'touch');
   }
 
@@ -291,10 +294,14 @@ export class InputManager {
       return;
     }
     const point = this.toCanvasPointFromClient(touch.clientX, touch.clientY);
+    // touchmove/touchendはタッチ開始要素(キャンバス)で発火し続けるため、指がキャンバスの外
+    // (論理座標の範囲外)へ出た状態で離しても座標自体は計算できてしまう。'outside'なら
+    // 配置/消去・パレット選択のどちらも行わず完全キャンセルする(画面外リリースでの誤生成対策)。
+    const region = classifyScreenPoint(point.x, point.y);
 
-    if (point.y >= GAME_AREA_HEIGHT) {
+    if (region === 'palette') {
       this.handlePaletteTap(point);
-    } else {
+    } else if (region === 'game') {
       // 指を離した位置で生成/消去する(タッチ中の移動はプレビューのみ駆動する)。
       // タッチ操作なのでtouchAnchorSideを適用する(getHoverTile()のプレビューと必ず一致させる)。
       this.handlePrimaryAction(point, true);

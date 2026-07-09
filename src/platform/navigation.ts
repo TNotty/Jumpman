@@ -6,6 +6,13 @@
 //
 // VITE_EMBED_ASSETS はアセット埋め込みと同時に「単一ページビルドかどうか」の判定にも使う
 // (npm run build:artifact が常に両フラグをセットでON にするため。挙動が食い違うことはない)。
+//
+// 通常ビルド経路のURLは全て './editor.html' のようなルート相対でないパスにする(先頭に'/'を
+// 付けない)。'/editor.html' のようなルート絶対パスだと、GitHub Pagesのようなサブパス配信
+// (例: https://tnotty.github.io/Jumpman/)で https://tnotty.github.io/editor.html を指してしまい
+// 404になる。相対パスなら現在ページ(index.html/editor.html/terrain.htmlはすべて同一ディレクトリの
+// 兄弟ファイル)からの相対解決になるため、dev(base '/')・ビルド(base './'、サブパス配信含む)の
+// どちらでも正しく解決される。
 
 const isSinglePageBuild = import.meta.env.VITE_EMBED_ASSETS === '1';
 
@@ -23,7 +30,7 @@ export function openEditor(): void {
   if (isSinglePageBuild) {
     navigateToHash('#editor');
   } else {
-    window.open('/editor.html', '_blank');
+    window.open('./editor.html', '_blank');
   }
 }
 
@@ -32,7 +39,7 @@ export function openTerrainEditor(): void {
   if (isSinglePageBuild) {
     navigateToHash('#terrain');
   } else {
-    window.open('/terrain.html', '_blank');
+    window.open('./terrain.html', '_blank');
   }
 }
 
@@ -44,6 +51,6 @@ export function openGameDraft(): void {
   if (isSinglePageBuild) {
     navigateToHash('#game-draft');
   } else {
-    window.open('/index.html?stage=draft', '_blank');
+    window.open('./index.html?stage=draft', '_blank');
   }
 }

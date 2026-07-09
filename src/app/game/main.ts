@@ -9,6 +9,9 @@ import type { StageData, TerrainDefinition } from '../../core/types';
 import { validateStage, validateTerrainMaster } from '../../data/schema';
 import stage01Raw from '../../data/stages/stage01.json';
 import stage02Raw from '../../data/stages/stage02.json';
+import stage03Raw from '../../data/stages/stage03.json';
+import stage04Raw from '../../data/stages/stage04.json';
+import stage05Raw from '../../data/stages/stage05.json';
 import terrainMasterRaw from '../../data/terrainMaster.json';
 import { AssetStore, loadAssets } from '../../render/assets';
 import { createCamera, updateCamera } from '../../render/camera';
@@ -205,6 +208,9 @@ async function main(): Promise<void> {
     stages = [
       { id: 'stage01', data: requireValidStage(stage01Raw, 'stage01.json') },
       { id: 'stage02', data: requireValidStage(stage02Raw, 'stage02.json') },
+      { id: 'stage03', data: requireValidStage(stage03Raw, 'stage03.json') },
+      { id: 'stage04', data: requireValidStage(stage04Raw, 'stage04.json') },
+      { id: 'stage05', data: requireValidStage(stage05Raw, 'stage05.json') },
     ];
   } catch (error) {
     drawLoadingScreen(ctx, 'ステージデータが不正です');
