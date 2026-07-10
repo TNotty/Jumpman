@@ -29,6 +29,11 @@ describe('themes(grass/caveの整合テスト)', () => {
     expect(isNonEmptyString(theme.tile.innerShade), 'tile.innerShade').toBe(true);
 
     expect(isNonEmptyString(theme.editorBackground), 'editorBackground').toBe(true);
+    expect(isNonEmptyString(theme.cardHeaderColor), 'cardHeaderColor').toBe(true);
+  });
+
+  it('grass/caveのcardHeaderColorは異なる色である(草原=緑系/洞窟=青灰系が視覚的に区別できる)', () => {
+    expect(getTheme('grass').cardHeaderColor).not.toBe(getTheme('cave').cardHeaderColor);
   });
 
   it('近景(midLayer)は遠景(farLayer)よりカメラ追従率が高い(視差の奥行きが逆転しない)', () => {

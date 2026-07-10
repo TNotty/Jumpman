@@ -318,6 +318,8 @@ const STRETCH_TARGET_SCALE_Y = 1.28; // ジャンプ踏切: 縦伸び
 const DEATH_POSE_DURATION = 0.35;
 /** 敵の被弾点滅(トゲ等でダメージを受けた際、短く白く点滅する)の表示時間(秒) */
 const ENEMY_FLASH_DURATION = 0.15;
+/** マナバーの「影バー」が実際の値に追いつく速度(1秒あたりの比率変化量) */
+const MANA_SHADOW_CATCHUP_RATE = 0.6;
 
 function easeOutQuad(t: number): number {
   return 1 - (1 - t) * (1 - t);
@@ -329,6 +331,20 @@ function easeOutBack(t: number): number {
   const c3 = c1 + 1;
   const x = t - 1;
   return 1 + c3 * x * x * x + c1 * x * x;
+}
+
+/**
+ * マナバーの「消費時に遅れて追いつく影バー」の次フレーム値を計算する純関数。
+ * target(実際の比率)がcurrent(影バーの比率)より小さい(=消費してマナが減った)場合は
+ * catchUpRate(1秒あたりの比率変化量)でゆっくり追いつき、target以上(=回復・マナ獲得等)
+ * の場合は即座に追従する(影は「最近失った分」を示す演出であり、増加を遅らせる意味は無いため)。
+ * currentがtargetを追い越さないよう、常にtargetでクランプする。
+ */
+export function advanceManaShadow(current: number, target: number, dt: number, catchUpRate: number): number {
+  if (target < current) {
+    return Math.max(target, current - catchUpRate * dt);
+  }
+  return target;
 }
 
 // --- EffectsManager(唯一のステートフルなrender層オブジェクト) ------------------------------
@@ -347,14 +363,17 @@ export interface EffectsManagerView {
   isDeathPoseActive(): boolean;
   /** 指定した敵(id)の被弾点滅の不透明度(0=通常、1=最大)。トゲ等で被弾した直後に短く発火する。 */
   getEnemyFlashAlpha(enemyId: number): number;
+  /** マナバーの「影バー」の現在の比率(0〜1)。消費直後は実際の比率よりゆっくり追いつく。 */
+  getManaShadowRatio(): number;
   renderParticles(ctx: CanvasRenderingContext2D, camera: CameraState): void;
 }
 
 export interface EffectsManager extends EffectsManagerView {
   /** GameStateのdiffからイベントを検出し、パーティクル生成/画面演出の起動を行う */
   handleFrame(prev: GameState, next: GameState, commands: readonly Command[]): void;
-  /** パーティクル・タイマーを1フレーム分進める(dt駆動、GameStateのupdateとは独立) */
-  update(dt: number): void;
+  /** パーティクル・タイマーを1フレーム分進める(dt駆動、GameStateのupdateとは独立)。
+   * manaRatio(0〜1)を渡すと影バーの目標値を更新する(省略時は影バーを進めない=非プレイ中)。 */
+  update(dt: number, manaRatio?: number): void;
   /** ステージ再開時(startPlaying)に呼び、前のプレイの余韻(紙吹雪・振動等)を一掃する */
   reset(): void;
 }
@@ -413,6 +432,10 @@ export function createEffectsManager(capacity: number = DEFAULT_PARTICLE_POOL_CA
     squashStretchTriggered = true;
     squashStretchTargetY = targetScaleY;
   }
+
+  // マナバーの影バー(遅れて追いつく)。既定1(満タン)から始まり、update()にmanaRatioが
+  // 渡されるたびにadvanceManaShadowで追従させる。
+  let manaShadowRatio = 1;
 
   // 死亡→リスポーンの「やられポーズ」表示ウィンドウ(タイマーは経過済み初期値=非表示スタート)
   let deathPoseTimer: Timer = { elapsed: DEATH_POSE_DURATION, duration: DEATH_POSE_DURATION };
@@ -601,7 +624,7 @@ export function createEffectsManager(capacity: number = DEFAULT_PARTICLE_POOL_CA
       const events = detectEffectEvents(prev, next, commands);
       for (const event of events) handleEvent(event);
     },
-    update(dt) {
+    update(dt, manaRatio) {
       updateParticlePool(pool, dt);
       shakeTimer = tickTimer(shakeTimer, dt);
       vignetteTimer = tickTimer(vignetteTimer, dt);
@@ -609,6 +632,10 @@ export function createEffectsManager(capacity: number = DEFAULT_PARTICLE_POOL_CA
       squashStretchTimer = tickTimer(squashStretchTimer, dt);
       deathPoseTimer = tickTimer(deathPoseTimer, dt);
       spawnConfetti(dt);
+
+      if (manaRatio !== undefined) {
+        manaShadowRatio = advanceManaShadow(manaShadowRatio, manaRatio, dt, MANA_SHADOW_CATCHUP_RATE);
+      }
 
       for (let i = floatTexts.length - 1; i >= 0; i--) {
         const t = floatTexts[i];
@@ -649,6 +676,7 @@ export function createEffectsManager(capacity: number = DEFAULT_PARTICLE_POOL_CA
       placementPops.clear();
       enemyFlashes.clear();
       floatTexts.length = 0;
+      manaShadowRatio = 1;
     },
     getShakeOffset() {
       if (!timerActive(shakeTimer)) return { x: 0, y: 0 };
@@ -686,6 +714,9 @@ export function createEffectsManager(capacity: number = DEFAULT_PARTICLE_POOL_CA
       const elapsed = enemyFlashes.get(enemyId);
       if (elapsed === undefined) return 0;
       return Math.max(0, 1 - elapsed / ENEMY_FLASH_DURATION);
+    },
+    getManaShadowRatio() {
+      return manaShadowRatio;
     },
     renderParticles(ctx, camera) {
       // パーティクル座標はコイン/敵などと同じ「タイル単位のワールド座標」で保持し、

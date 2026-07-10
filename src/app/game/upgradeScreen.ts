@@ -32,16 +32,22 @@ export interface UpgradeScreenHandles {
   isOpen: () => boolean;
 }
 
-// devOverlay/createGameUiOverlayの GAME_UI_BUTTON_STYLE と同じ見た目の値をあえて再定義している
-// (main.tsからのimportは循環参照になるため。値は意図的に同じにしてある)。
+// ゲーム全体のトーン(ダーク背景+黄色アクセント)に合わせたボタン。グラデーション+うっすらした
+// 影で「質感」を出す(機能・タッチ領域(min-height/min-width 44px)は変更しない)。
 const BUTTON_STYLE =
-  'background:rgba(0,0,0,0.55); color:#fff; padding:8px 12px; border-radius:4px; ' +
-  'border:1px solid rgba(255,255,255,0.35); font-family:sans-serif; font-size:13px; cursor:pointer; ' +
-  'min-height:44px; min-width:44px;';
+  'background:linear-gradient(180deg, #3a3f4a, #24272e); color:#fff; padding:8px 12px; border-radius:6px; ' +
+  'border:1px solid rgba(241,196,15,0.55); font-family:sans-serif; font-size:13px; font-weight:bold; ' +
+  'cursor:pointer; min-height:44px; min-width:44px; box-shadow:0 2px 4px rgba(0,0,0,0.4);';
 const SMALL_BUTTON_STYLE =
-  'background:rgba(0,0,0,0.55); color:#fff; padding:6px 10px; border-radius:4px; ' +
-  'border:1px solid rgba(255,255,255,0.35); font-family:sans-serif; font-size:13px; cursor:pointer; ' +
-  'min-height:44px; min-width:44px;';
+  'background:linear-gradient(180deg, #3a3f4a, #24272e); color:#fff; padding:6px 10px; border-radius:6px; ' +
+  'border:1px solid rgba(241,196,15,0.55); font-family:sans-serif; font-size:14px; font-weight:bold; ' +
+  'cursor:pointer; min-height:44px; min-width:44px; box-shadow:0 2px 4px rgba(0,0,0,0.4);';
+/** カード化した行の共通スタイル(左端に黄色いアクセント帯) */
+const CARD_ROW_STYLE =
+  'display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:rgba(255,255,255,0.045); ' +
+  'padding:10px 10px 10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,0.08); ' +
+  'border-left:3px solid #f1c40f;';
+const HEADING_STYLE = 'font-size:16px; margin:8px 0 0; color:#f1c40f; border-bottom:1px solid rgba(241,196,15,0.35); padding-bottom:4px;';
 
 const UPGRADE_LABELS: Record<UpgradeKey, string> = {
   hp: '最大HP',
@@ -50,6 +56,16 @@ const UPGRADE_LABELS: Record<UpgradeKey, string> = {
   manaRegen: 'マナ回復速度',
   manaMax: 'マナ上限',
 };
+
+/**
+ * レベルをドット表示の文字列(●●●○○...)にする純関数。単体テスト可能。
+ * levelが負数/maxを超える場合は0〜maxにクランプする(表示が壊れないようにする防御的な扱い)。
+ */
+export function formatLevelDots(level: number, max: number): string {
+  const clampedMax = Math.max(0, max);
+  const clampedLevel = Math.min(clampedMax, Math.max(0, level));
+  return '●'.repeat(clampedLevel) + '○'.repeat(clampedMax - clampedLevel);
+}
 
 /** 指定キーの効果を、そのキーだけ指定レベルに差し替えたPlayerStatsから読みやすい文字列にする */
 function formatEffect(key: UpgradeKey, levels: UpgradeLevels, level: number): string {
@@ -86,8 +102,8 @@ function setDisabled(el: HTMLButtonElement, disabled: boolean): void {
 export function createUpgradeScreen(deps: UpgradeScreenDeps): UpgradeScreenHandles {
   const overlay = document.createElement('div');
   overlay.style.cssText =
-    'position:fixed; inset:0; z-index:2000; background:rgba(10,10,16,0.94); overflow-y:auto; ' +
-    'display:none; box-sizing:border-box; padding:20px; font-family:sans-serif; color:#fff; ' +
+    'position:fixed; inset:0; z-index:2000; background:radial-gradient(ellipse at top, #182230 0%, #0a0a10 70%); ' +
+    'overflow-y:auto; display:none; box-sizing:border-box; padding:20px; font-family:sans-serif; color:#fff; ' +
     '-webkit-overflow-scrolling:touch;';
 
   const inner = document.createElement('div');
@@ -96,16 +112,19 @@ export function createUpgradeScreen(deps: UpgradeScreenDeps): UpgradeScreenHandl
 
   const title = document.createElement('h1');
   title.textContent = 'プレイヤー強化';
-  title.style.cssText = 'font-size:22px; margin:0;';
+  title.style.cssText =
+    'font-size:24px; margin:0; color:#ffd23f; text-shadow:0 2px 4px rgba(0,0,0,0.5); letter-spacing:1px;';
   inner.appendChild(title);
 
   const walletEl = document.createElement('div');
-  walletEl.style.cssText = 'font-size:16px; color:#f1c40f;';
+  walletEl.style.cssText =
+    'font-size:16px; color:#f1c40f; background:rgba(241,196,15,0.1); border:1px solid rgba(241,196,15,0.4); ' +
+    'border-radius:6px; padding:8px 12px; display:inline-block; width:fit-content;';
   inner.appendChild(walletEl);
 
   const upgradesHeading = document.createElement('h2');
   upgradesHeading.textContent = '強化';
-  upgradesHeading.style.cssText = 'font-size:16px; margin:8px 0 0; border-bottom:1px solid #444; padding-bottom:4px;';
+  upgradesHeading.style.cssText = HEADING_STYLE;
   inner.appendChild(upgradesHeading);
 
   const upgradesRowsEl = document.createElement('div');
@@ -114,7 +133,7 @@ export function createUpgradeScreen(deps: UpgradeScreenDeps): UpgradeScreenHandl
 
   const terrainHeading = document.createElement('h2');
   terrainHeading.textContent = '地形解放';
-  terrainHeading.style.cssText = 'font-size:16px; margin:8px 0 0; border-bottom:1px solid #444; padding-bottom:4px;';
+  terrainHeading.style.cssText = HEADING_STYLE;
   inner.appendChild(terrainHeading);
 
   const terrainListEl = document.createElement('div');
@@ -123,7 +142,7 @@ export function createUpgradeScreen(deps: UpgradeScreenDeps): UpgradeScreenHandl
 
   const loadoutHeading = document.createElement('h2');
   loadoutHeading.textContent = 'ロードアウト編集(8枠)';
-  loadoutHeading.style.cssText = 'font-size:16px; margin:8px 0 0; border-bottom:1px solid #444; padding-bottom:4px;';
+  loadoutHeading.style.cssText = HEADING_STYLE;
   inner.appendChild(loadoutHeading);
 
   const loadoutGridEl = document.createElement('div');
@@ -147,14 +166,22 @@ export function createUpgradeScreen(deps: UpgradeScreenDeps): UpgradeScreenHandl
     for (const key of UPGRADE_KEYS) {
       const level = save.upgrades[key];
       const row = document.createElement('div');
-      row.style.cssText =
-        'display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:rgba(255,255,255,0.05); ' +
-        'padding:8px; border-radius:6px;';
+      row.style.cssText = CARD_ROW_STYLE;
+
+      const labelCol = document.createElement('div');
+      labelCol.style.cssText = 'display:flex; flex-direction:column; gap:2px; min-width:140px;';
 
       const label = document.createElement('div');
-      label.style.cssText = 'min-width:120px; font-size:14px;';
+      label.style.cssText = 'font-size:14px; font-weight:bold;';
       label.textContent = `${UPGRADE_LABELS[key]} (${level}/${MAX_UPGRADE_LEVEL})`;
-      row.appendChild(label);
+      labelCol.appendChild(label);
+
+      const dots = document.createElement('div');
+      dots.style.cssText = 'font-size:12px; color:#f1c40f; letter-spacing:1px;';
+      dots.textContent = formatLevelDots(level, MAX_UPGRADE_LEVEL);
+      labelCol.appendChild(dots);
+
+      row.appendChild(labelCol);
 
       const effect = document.createElement('div');
       effect.style.cssText = 'flex:1; min-width:160px; font-size:13px; color:#ccc;';
@@ -210,9 +237,7 @@ export function createUpgradeScreen(deps: UpgradeScreenDeps): UpgradeScreenHandl
 
     for (const terrain of deps.fullTerrainMaster) {
       const row = document.createElement('div');
-      row.style.cssText =
-        'display:flex; align-items:center; gap:10px; flex-wrap:wrap; background:rgba(255,255,255,0.05); ' +
-        'padding:8px; border-radius:6px;';
+      row.style.cssText = CARD_ROW_STYLE;
 
       const previewCanvas = document.createElement('canvas');
       previewCanvas.width = 56;
@@ -266,8 +291,8 @@ export function createUpgradeScreen(deps: UpgradeScreenDeps): UpgradeScreenHandl
     for (let slotIndex = 0; slotIndex < LOADOUT_SIZE; slotIndex++) {
       const cell = document.createElement('div');
       cell.style.cssText =
-        'display:flex; flex-direction:column; gap:4px; background:rgba(255,255,255,0.05); ' +
-        'padding:8px; border-radius:6px;';
+        'display:flex; flex-direction:column; gap:4px; background:rgba(255,255,255,0.045); ' +
+        'padding:8px; border-radius:8px; border:1px solid rgba(255,255,255,0.08); border-left:3px solid #f1c40f;';
 
       const slotLabel = document.createElement('div');
       slotLabel.style.cssText = 'font-size:12px; color:#aaa;';

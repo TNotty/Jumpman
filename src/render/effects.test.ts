@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_PARTICLE_POOL_CAPACITY,
   EVENT_PARTICLE_COUNTS,
+  advanceManaShadow,
   clearParticlePool,
   countActiveParticles,
   createEffectsManager,
@@ -130,6 +131,29 @@ describe('EVENT_PARTICLE_COUNTS(イベント→生成数の定数テーブル)',
       expect(count, kind).toBeGreaterThanOrEqual(0);
       expect(count, kind).toBeLessThan(DEFAULT_PARTICLE_POOL_CAPACITY);
     }
+  });
+});
+
+describe('advanceManaShadow(マナバーの影バーが遅れて追いつく純ロジック)', () => {
+  it('target(実際の値)がcurrent(影バー)より小さい場合、catchUpRate×dtぶんだけゆっくり減る', () => {
+    expect(advanceManaShadow(1, 0.5, 0.1, 0.6)).toBeCloseTo(1 - 0.06, 5);
+  });
+
+  it('影バーはtargetを下回らない(クランプされる)', () => {
+    expect(advanceManaShadow(0.52, 0.5, 1, 0.6)).toBe(0.5); // 1秒×0.6だと0.5を下回るはずだがクランプ
+  });
+
+  it('target(実際の値)がcurrent以上(回復・増加)の場合、即座に追従する', () => {
+    expect(advanceManaShadow(0.3, 0.8, 0.016, 0.6)).toBe(0.8);
+    expect(advanceManaShadow(0.5, 0.5, 0.016, 0.6)).toBe(0.5); // 変化なしでも即値
+  });
+
+  it('十分な時間が経てば最終的にtargetへ収束する', () => {
+    let shadow = 1;
+    for (let i = 0; i < 300; i++) {
+      shadow = advanceManaShadow(shadow, 0.2, 1 / 60, 0.6);
+    }
+    expect(shadow).toBeCloseTo(0.2, 5);
   });
 });
 
@@ -343,6 +367,36 @@ describe('createEffectsManager', () => {
   it('初期状態ではsquash&stretchは等倍(scaleX=scaleY=1)', () => {
     const manager = createEffectsManager(32);
     expect(manager.getSquashStretch()).toEqual({ scaleX: 1, scaleY: 1 });
+  });
+
+  it('初期状態ではgetManaShadowRatioは1(満タン)', () => {
+    const manager = createEffectsManager(32);
+    expect(manager.getManaShadowRatio()).toBe(1);
+  });
+
+  it('updateにmanaRatioを渡すと、影バーが実際の比率へゆっくり追従する', () => {
+    const manager = createEffectsManager(32);
+    manager.update(1 / 60, 0.3); // マナが0.3まで消費された
+    expect(manager.getManaShadowRatio()).toBeLessThan(1);
+    expect(manager.getManaShadowRatio()).toBeGreaterThan(0.3); // まだ実値には追いついていない
+
+    for (let i = 0; i < 300; i++) manager.update(1 / 60, 0.3); // 十分な時間が経過
+    expect(manager.getManaShadowRatio()).toBeCloseTo(0.3, 5);
+  });
+
+  it('manaRatioを渡さないupdate呼び出しでは影バーが変化しない(非プレイ中を想定)', () => {
+    const manager = createEffectsManager(32);
+    manager.update(1 / 60, 0.3);
+    const before = manager.getManaShadowRatio();
+    manager.update(1 / 60); // manaRatio省略
+    expect(manager.getManaShadowRatio()).toBe(before);
+  });
+
+  it('resetで影バーが1(満タン)に戻る', () => {
+    const manager = createEffectsManager(32);
+    manager.update(1 / 60, 0.3);
+    manager.reset();
+    expect(manager.getManaShadowRatio()).toBe(1);
   });
 
   it('初期状態ではisDeathPoseActive=false、getEnemyFlashAlpha=0', () => {

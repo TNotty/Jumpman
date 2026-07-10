@@ -21,6 +21,14 @@ import stage09Raw from '../../data/stages/stage09.json';
 import stage10Raw from '../../data/stages/stage10.json';
 import terrainMasterRaw from '../../data/terrainMaster.json';
 import { resolveLoadoutPalette } from './loadout';
+import {
+  advanceTransition,
+  beginFadeOut,
+  computeFadeAlpha,
+  createIdleTransition,
+  isTransitioning,
+} from './sceneTransition';
+import type { Transition } from './sceneTransition';
 import { applyStageCleared, isStageSelectable } from './stageUnlock';
 import { AssetStore, loadAssets } from '../../render/assets';
 import { createBackgroundLayers } from '../../render/background';
@@ -65,7 +73,9 @@ type Scene =
   | { kind: 'title' }
   | { kind: 'stageSelect' }
   | { kind: 'playing'; stageIndex: number; stageData: StageData; game: GameState; camera: CameraState }
-  | { kind: 'clear'; stageIndex: number; game: GameState; camera: CameraState };
+  /** clearedAt: このシーンに切り替わった時点のanimTime。クリア画面のコイン数カウントアップの
+   * 経過時間計算(animTime - clearedAt)に使う。 */
+  | { kind: 'clear'; stageIndex: number; game: GameState; camera: CameraState; clearedAt: number };
 
 interface DevOverlayHandles {
   titleLinksEl: HTMLDivElement;
@@ -328,6 +338,10 @@ async function main(): Promise<void> {
   // 未使用(undefinedのまま=renderGame側のフォールバック描画に委ねる)でよい。
   let backgroundLayers: BackgroundLayers | undefined;
 
+  // タイトル/ステージ選択画面用のパララックス背景(草原固定、静止表示でよい)。ステージテーマに
+  // 依存しないため1度だけ作って使い回す(resetや再生成は不要)。
+  const menuBackgroundLayers = createBackgroundLayers('grass');
+
   function startPlaying(stageData: StageData, stageIndex: number): Scene {
     lastPersistedTakenCount = 0;
     // 前回のプレイの余韻(振動・ビネット・紙吹雪・パーティクル)を持ち越さない。
@@ -418,6 +432,21 @@ async function main(): Promise<void> {
 
   let animTime = 0;
 
+  // シーン切替の短い黒フェード(0.25秒程度、往復で約0.5秒)。純粋な状態機械はsceneTransition.tsに
+  // 切り出してある。pendingSceneFactoryは「フェードアウトが完了した瞬間に呼ぶシーン構築処理」を
+  // 保持する(呼ぶタイミングを遅らせることで、真っ黒な瞬間の裏でシーンが切り替わるようにする)。
+  let transition: Transition = createIdleTransition();
+  let pendingSceneFactory: (() => Scene) | null = null;
+
+  function requestSceneChange(factory: () => Scene): void {
+    if (isTransitioning(transition)) return; // 遷移中の多重発火を防ぐ
+    pendingSceneFactory = factory;
+    transition = beginFadeOut();
+  }
+
+  // ステージ選択画面でマウスホバー中のカードindex(タッチ操作では使われない=常にnullのまま)。
+  let hoveredStageIndex: number | null = null;
+
   // 常時表示の製品UI(全画面切替・タッチ生成アンカー切替)。devOverlayと異なりDEV限定ではない。
   createGameUiOverlay(input);
 
@@ -450,9 +479,13 @@ async function main(): Promise<void> {
 
   // タイトル/ステージ選択/クリア画面のタップ・クリック共通処理。
   // scene.kind === 'playing' のときは InputManager の mousedown/touchend が地形生成/消去を処理する。
+  // シーン切替は即座に行わず requestSceneChange() 経由でフェードを挟む。遷移中(黒フェード中)は
+  // 誤クリックを無効化する。
   function handleScreenTap(point: { x: number; y: number }): void {
+    if (isTransitioning(transition)) return;
+
     if (scene.kind === 'title') {
-      scene = { kind: 'stageSelect' };
+      requestSceneChange(() => ({ kind: 'stageSelect' }));
       return;
     }
 
@@ -464,7 +497,7 @@ async function main(): Promise<void> {
         if (!pointInRect(point.x, point.y, stageSelectBoxRect(i))) continue;
         // クリア済み + 未クリアの最初の1つだけ選択可能(それ以外はロック表示でタップ無効)。
         if (!isStageSelectable(stage.id, stageIds, save.clearedStageIds)) return;
-        scene = startPlaying(stage.data, i);
+        requestSceneChange(() => startPlaying(stage.data, i));
         return;
       }
       return;
@@ -472,14 +505,15 @@ async function main(): Promise<void> {
 
     if (scene.kind === 'clear') {
       if (hasNextStage(scene.stageIndex) && pointInRect(point.x, point.y, clearNextButtonRect())) {
-        const next = stages[scene.stageIndex + 1];
+        const nextIndex = scene.stageIndex + 1;
+        const next = stages[nextIndex];
         if (next) {
-          scene = startPlaying(next.data, scene.stageIndex + 1);
+          requestSceneChange(() => startPlaying(next.data, nextIndex));
         }
         return;
       }
       if (pointInRect(point.x, point.y, clearTitleButtonRect())) {
-        scene = { kind: 'title' };
+        requestSceneChange(() => ({ kind: 'title' }));
       }
       return;
     }
@@ -503,6 +537,23 @@ async function main(): Promise<void> {
     const touch = event.changedTouches.item(0);
     if (!touch) return;
     handleScreenTap(toCanvasPointFromClient(touch.clientX, touch.clientY));
+  });
+
+  // ステージ選択カードのホバー発光(マウスのみ。タッチ操作にホバーの概念は無いためhoveredStageIndexは
+  // 常にnullのまま=通常表示になる)。
+  canvas.addEventListener('mousemove', (event) => {
+    if (scene.kind !== 'stageSelect') {
+      hoveredStageIndex = null;
+      return;
+    }
+    const point = toCanvasPointFromClient(event.clientX, event.clientY);
+    hoveredStageIndex = null;
+    for (let i = 0; i < stages.length; i++) {
+      if (pointInRect(point.x, point.y, stageSelectBoxRect(i))) {
+        hoveredStageIndex = i;
+        break;
+      }
+    }
   });
 
   const loop = createLoop({
@@ -531,26 +582,52 @@ async function main(): Promise<void> {
           dt,
         );
 
-        if (nextGame.status === GameStatus.Cleared) {
+        // ちょうど今フレームでクリアした(エッジ検出: 前フレームはまだCleared化していなかった)場合、
+        // 即座に'clear'シーンへ切り替えず、フェードを要求する(黒画面の裏でシーンが切り替わる)。
+        // ロジックの時間そのものは止めない(シンプルな方を選ぶ、という方針どおり): sceneは
+        // このフレームも'playing'のまま更新し続ける('playing'中のstatus===Clearedはcore側の
+        // update()が早期returnするだけなので、フェード完了まで無害に据え置かれる)。
+        if (nextGame.status === GameStatus.Cleared && scene.game.status !== GameStatus.Cleared) {
           persistStageCleared(nextGame.stage.id, scene.stageIndex);
-          scene = { kind: 'clear', stageIndex: scene.stageIndex, game: nextGame, camera: nextCamera };
-        } else {
-          scene = { kind: 'playing', stageIndex: scene.stageIndex, stageData: scene.stageData, game: nextGame, camera: nextCamera };
+          const stageIndexAtClear = scene.stageIndex;
+          requestSceneChange(() => ({
+            kind: 'clear',
+            stageIndex: stageIndexAtClear,
+            game: nextGame,
+            camera: nextCamera,
+            clearedAt: animTime,
+          }));
         }
+        scene = { kind: 'playing', stageIndex: scene.stageIndex, stageData: scene.stageData, game: nextGame, camera: nextCamera };
       }
 
       // パーティクル/タイマーはGameStateのupdateとは独立にdt駆動で進める('clear'シーン中も
       // 呼び続けることで、クリア画面の背後で紙吹雪が降り続ける演出を成立させる)。
-      effects.update(dt);
+      // マナ比率(0〜1)はplaying/clear中のみ渡す(それ以外のシーンでは影バーを進めない)。
+      const manaRatio =
+        scene.kind === 'playing' || scene.kind === 'clear'
+          ? scene.game.mana.max > 0
+            ? scene.game.mana.current / scene.game.mana.max
+            : 0
+          : undefined;
+      effects.update(dt, manaRatio);
+
+      // シーン切替の黒フェードを1フレーム分進める。フェードアウトが完了した瞬間(=画面が
+      // 真っ黒になった瞬間)に、保留していたシーン構築処理を実行して実際に切り替える。
+      const transitionResult = advanceTransition(transition, dt);
+      transition = transitionResult.next;
+      if (transitionResult.fadeOutJustCompleted && pendingSceneFactory) {
+        scene = pendingSceneFactory();
+        pendingSceneFactory = null;
+      }
     },
     render: () => {
       devOverlay?.sync(scene.kind);
       upgradeEntry.sync(scene.kind);
+
       if (scene.kind === 'title') {
-        drawTitleScreen(ctx, Math.floor(animTime * 2) % 2 === 0);
-        return;
-      }
-      if (scene.kind === 'stageSelect') {
+        drawTitleScreen(ctx, Math.floor(animTime * 2) % 2 === 0, assets, menuBackgroundLayers, animTime);
+      } else if (scene.kind === 'stageSelect') {
         const stageIds = stages.map((s) => s.id);
         const metas: StageMeta[] = stages.map((s) => ({
           id: s.id,
@@ -559,17 +636,37 @@ async function main(): Promise<void> {
           coinCount: s.data.coins.length,
           collectedCoinIndices: new Set(save.collected[s.id] ?? []),
           selectable: isStageSelectable(s.id, stageIds, save.clearedStageIds),
+          cleared: save.clearedStageIds.includes(s.id),
         }));
-        drawStageSelectScreen(ctx, metas);
-        return;
-      }
-      if (scene.kind === 'playing') {
+        drawStageSelectScreen(ctx, metas, menuBackgroundLayers, animTime, hoveredStageIndex);
+      } else if (scene.kind === 'playing') {
         renderGame(ctx, assets, scene.game, scene.camera, animTime, input.getHoverTile(), save.wallet, effects, backgroundLayers);
-        return;
+      } else {
+        // 'clear'
+        renderGame(
+          ctx,
+          assets,
+          scene.game,
+          scene.camera,
+          animTime,
+          null,
+          save.wallet,
+          effects,
+          backgroundLayers,
+          animTime - scene.clearedAt,
+        );
+        drawClearButtons(ctx, hasNextStage(scene.stageIndex));
       }
-      // 'clear'
-      renderGame(ctx, assets, scene.game, scene.camera, animTime, null, save.wallet, effects, backgroundLayers);
-      drawClearButtons(ctx, hasNextStage(scene.stageIndex));
+
+      // シーン切替の黒フェード(全シーン共通、最前面に重ねる)
+      const fadeAlpha = computeFadeAlpha(transition);
+      if (fadeAlpha > 0) {
+        ctx.save();
+        ctx.fillStyle = '#000000';
+        ctx.globalAlpha = fadeAlpha;
+        ctx.fillRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
+        ctx.restore();
+      }
     },
   });
 

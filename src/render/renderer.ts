@@ -460,10 +460,23 @@ function drawJumpman(
 }
 
 /**
+ * HP(hp/maxHp)から、ハート1個ずつが'full'か'empty'かを求める純関数。単体テスト可能。
+ * maxHpが0以下の場合は空配列(ハートを描かない)。
+ */
+export function computeHeartStates(hp: number, maxHp: number): ('full' | 'empty')[] {
+  const hearts: ('full' | 'empty')[] = [];
+  for (let i = 0; i < maxHp; i++) {
+    hearts.push(i < hp ? 'full' : 'empty');
+  }
+  return hearts;
+}
+
+/**
  * HP表示の直下に所持コイン数(コインアイコン+数値)を描く。walletCountはセーブデータ由来の値を
  * app層が渡す(core/GameStateはwalletを持たない=セーブの概念を知らないため)。
+ * HPはハート型スプライト(heart.svg、frame0=満タン/frame1=空)で表示する。
  */
-function drawHud(ctx: CanvasRenderingContext2D, state: GameState, walletCount: number): void {
+function drawHud(ctx: CanvasRenderingContext2D, assets: AssetStore, state: GameState, walletCount: number): void {
   ctx.save();
   ctx.font = '20px sans-serif';
   ctx.fillStyle = '#ffffff';
@@ -471,15 +484,15 @@ function drawHud(ctx: CanvasRenderingContext2D, state: GameState, walletCount: n
   ctx.fillText('HP', 12, 10);
 
   // 最大HPは強化(hp)で5〜15まで変わるため、定数ではなくstate.playerStats.maxHp(実効値)を使う。
-  const heartSize = 18;
-  for (let i = 0; i < state.playerStats.maxHp; i++) {
-    const x = 48 + i * (heartSize + 4);
-    const y = 10;
-    ctx.fillStyle = i < state.jumpman.hp ? '#e74c3c' : '#4a4a4a';
-    ctx.fillRect(x, y, heartSize, heartSize);
-  }
+  const heartSize = 22;
+  const hearts = computeHeartStates(state.jumpman.hp, state.playerStats.maxHp);
+  hearts.forEach((heartState, i) => {
+    const x = 48 + i * (heartSize + 2);
+    const y = 6;
+    drawSprite(ctx, assets, 'heart', heartState === 'full' ? 0 : 1, x, y, heartSize, heartSize);
+  });
 
-  const coinRowY = 10 + heartSize + 8;
+  const coinRowY = 10 + 18 + 8;
   ctx.fillStyle = '#f1c40f';
   ctx.beginPath();
   ctx.arc(21, coinRowY + 9, 9, 0, Math.PI * 2);
@@ -548,12 +561,25 @@ export function drawTerrainShapePreview(
  * ゲーム本体(GameState経由。loadout由来で空枠はnull)と地形マスタエディタ(プレーンな配列)の
  * 双方から再利用する。null(空枠)は選択不可であることが分かる専用の見た目で描く。
  */
+/**
+ * パレット8枠(形状プレビュー・コスト・選択枠・ロック表示)を描画する。
+ * ゲーム本体(GameState経由。loadout由来で空枠はnull)と地形マスタエディタ(プレーンな配列)の
+ * 双方から再利用する。null(空枠)は選択不可であることが分かる専用の見た目で描く。
+ * manaCurrent/animTimeは省略可能(地形マスタエディタにはマナの概念が無いため)。
+ * 指定した場合: 選択中スロットの枠がanimTimeに応じてゆっくり発光し、マナ不足の地形は
+ * コスト表示が赤くなる(視認性向上)。
+ */
 export function drawPaletteSlots(
   ctx: CanvasRenderingContext2D,
   terrains: readonly (TerrainDefinition | null)[],
   selectedSlot: PaletteSlot,
+  manaCurrent?: number,
+  animTime = 0,
 ): void {
   const count = Math.min(PALETTE_SLOT_COUNT, terrains.length);
+  // 選択枠の発光: 0.6〜1の間でゆっくり明滅させる(常時点灯だと目立ちすぎるため)
+  const glowAlpha = 0.7 + 0.3 * Math.sin(animTime * 4);
+
   for (let i = 0; i < count; i++) {
     const terrain = terrains[i];
     const rect = paletteSlotRect(i);
@@ -582,9 +608,20 @@ export function drawPaletteSlots(
     ctx.fillStyle = terrain.unlocked ? '#2b2b2b' : '#1a1a1a';
     ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
 
-    ctx.strokeStyle = selected ? '#f1c40f' : '#555555';
-    ctx.lineWidth = selected ? 3 : 1;
-    ctx.strokeRect(rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2);
+    if (selected) {
+      // 発光: 通常の縁取りの外側にぼかした光暈を追加してから、通常の縁取りを重ねる
+      ctx.save();
+      ctx.shadowColor = `rgba(241, 196, 15, ${glowAlpha})`;
+      ctx.shadowBlur = 12;
+      ctx.strokeStyle = `rgba(241, 196, 15, ${glowAlpha})`;
+      ctx.lineWidth = 3;
+      ctx.strokeRect(rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2);
+      ctx.restore();
+    } else {
+      ctx.strokeStyle = '#555555';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2);
+    }
 
     if (terrain.unlocked) {
       drawTerrainShapePreview(ctx, terrain, rect.x + 4, rect.y + 4, rect.w - 8, rect.h - 28);
@@ -596,7 +633,9 @@ export function drawPaletteSlots(
       ctx.fillText('未解放', rect.x + rect.w / 2, rect.y + rect.h / 2 - 8);
     }
 
-    ctx.fillStyle = terrain.unlocked ? '#ffffff' : '#777777';
+    // マナ不足の地形はコストを赤くして視認性を上げる(manaCurrent未指定時は判定しない=常に通常色)。
+    const insufficientMana = terrain.unlocked && manaCurrent !== undefined && manaCurrent < terrain.cost;
+    ctx.fillStyle = !terrain.unlocked ? '#777777' : insufficientMana ? '#ff5c4d' : '#ffffff';
     ctx.font = '13px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
@@ -606,16 +645,27 @@ export function drawPaletteSlots(
 }
 
 /** 消去スロット(ゴミ箱アイコン+消去コスト表示)を描画する。8地形スロットの右に独立した1枠として置く */
-export function drawEraserSlot(ctx: CanvasRenderingContext2D, selected: boolean, cost: number): void {
+export function drawEraserSlot(ctx: CanvasRenderingContext2D, selected: boolean, cost: number, animTime = 0): void {
   const rect = eraserSlotRect();
 
   ctx.save();
   ctx.fillStyle = '#2b1a1a';
   ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
 
-  ctx.strokeStyle = selected ? '#f1c40f' : '#555555';
-  ctx.lineWidth = selected ? 3 : 1;
-  ctx.strokeRect(rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2);
+  if (selected) {
+    const glowAlpha = 0.7 + 0.3 * Math.sin(animTime * 4);
+    ctx.save();
+    ctx.shadowColor = `rgba(241, 196, 15, ${glowAlpha})`;
+    ctx.shadowBlur = 12;
+    ctx.strokeStyle = `rgba(241, 196, 15, ${glowAlpha})`;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2);
+    ctx.restore();
+  } else {
+    ctx.strokeStyle = '#555555';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2);
+  }
 
   // ゴミ箱風のアイコン(簡易): 蓋+本体の矩形
   const iconCx = rect.x + rect.w / 2;
@@ -638,7 +688,11 @@ export function drawEraserSlot(ctx: CanvasRenderingContext2D, selected: boolean,
   ctx.restore();
 }
 
-function drawManaBar(ctx: CanvasRenderingContext2D, state: GameState): void {
+/**
+ * マナバーを描く: グラデーション塗り+回復中(current<max)の先端の光+消費時に遅れて追いつく
+ * 影バー(effects.getManaShadowRatio()、省略時は影バー無しの従来どおりの見た目)。
+ */
+function drawManaBar(ctx: CanvasRenderingContext2D, state: GameState, animTime: number, effects?: EffectsManagerView): void {
   const barX = LOGICAL_WIDTH - 240;
   const barY = GAME_AREA_HEIGHT + PALETTE_HEIGHT / 2 - 12;
   const barW = 216;
@@ -653,9 +707,34 @@ function drawManaBar(ctx: CanvasRenderingContext2D, state: GameState): void {
 
   ctx.fillStyle = '#1a1a1a';
   ctx.fillRect(barX, barY, barW, barH);
+
   const ratio = state.mana.max > 0 ? Math.max(0, Math.min(1, state.mana.current / state.mana.max)) : 0;
-  ctx.fillStyle = '#3498db';
+
+  // 影バー: 消費直後は実際の値より少し右まで残り、ゆっくり追いつく(「最近失った分」の演出)。
+  const shadowRatio = Math.max(ratio, effects?.getManaShadowRatio() ?? ratio);
+  if (shadowRatio > ratio) {
+    ctx.fillStyle = 'rgba(52, 152, 219, 0.35)';
+    ctx.fillRect(barX, barY, barW * shadowRatio, barH);
+  }
+
+  // 本体: グラデーション塗り
+  const gradient = ctx.createLinearGradient(barX, barY, barX, barY + barH);
+  gradient.addColorStop(0, '#6dc7f5');
+  gradient.addColorStop(1, '#2f7fc4');
+  ctx.fillStyle = gradient;
   ctx.fillRect(barX, barY, barW * ratio, barH);
+
+  // 回復中(current<max)の先端に、ゆっくり明滅する光を添える
+  if (ratio > 0 && ratio < 1) {
+    const glowX = barX + barW * ratio;
+    const glowAlpha = 0.5 + 0.5 * Math.sin(animTime * 5);
+    const glow = ctx.createRadialGradient(glowX, barY + barH / 2, 0, glowX, barY + barH / 2, barH * 0.8);
+    glow.addColorStop(0, `rgba(255, 255, 255, ${0.8 * glowAlpha})`);
+    glow.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(glowX - barH, barY - barH * 0.4, barH * 2, barH * 1.8);
+  }
+
   ctx.strokeStyle = '#888888';
   ctx.lineWidth = 1;
   ctx.strokeRect(barX, barY, barW, barH);
@@ -668,7 +747,7 @@ function drawManaBar(ctx: CanvasRenderingContext2D, state: GameState): void {
   ctx.restore();
 }
 
-function drawPaletteArea(ctx: CanvasRenderingContext2D, state: GameState): void {
+function drawPaletteArea(ctx: CanvasRenderingContext2D, state: GameState, animTime = 0, effects?: EffectsManagerView): void {
   ctx.save();
   const y = GAME_AREA_HEIGHT;
   ctx.fillStyle = '#101010';
@@ -679,7 +758,7 @@ function drawPaletteArea(ctx: CanvasRenderingContext2D, state: GameState): void 
   ctx.restore();
 
   // 消去スロットは地形マスタの有無に関わらず常時使えるため、8地形スロットとは独立に描画する
-  drawEraserSlot(ctx, state.selectedSlot === 'eraser', state.stage.eraseCost);
+  drawEraserSlot(ctx, state.selectedSlot === 'eraser', state.stage.eraseCost, animTime);
 
   if (state.terrainMaster.length === 0) {
     ctx.save();
@@ -691,8 +770,8 @@ function drawPaletteArea(ctx: CanvasRenderingContext2D, state: GameState): void 
     return;
   }
 
-  drawPaletteSlots(ctx, state.terrainMaster, state.selectedSlot);
-  drawManaBar(ctx, state);
+  drawPaletteSlots(ctx, state.terrainMaster, state.selectedSlot, state.mana.current, animTime);
+  drawManaBar(ctx, state, animTime, effects);
 }
 
 /** 消去スロット選択中のプレビュー: 消去対象マスに枠を描く(消去可=白枠/不可=赤枠) */
@@ -758,15 +837,44 @@ function drawPlacementPreview(
   ctx.restore();
 }
 
-function drawClearOverlay(ctx: CanvasRenderingContext2D): void {
+/**
+ * クリア画面のリザルト演出用、取得コイン数のカウントアップ表示値を求める純関数。
+ * elapsedSecondsがduration以上ならtargetCountをそのまま返す(カウントアップ完了後)。
+ */
+export function computeCoinCountUp(targetCount: number, elapsedSeconds: number, duration: number): number {
+  if (duration <= 0 || elapsedSeconds >= duration) return targetCount;
+  if (elapsedSeconds <= 0) return 0;
+  const t = elapsedSeconds / duration;
+  return Math.round(targetCount * t);
+}
+
+const CLEAR_COIN_COUNT_UP_DURATION = 0.8;
+
+function drawClearOverlay(ctx: CanvasRenderingContext2D, state: GameState, clearedElapsed: number): void {
+  const collectedCount = state.coins.filter((c) => c.permanentlyCollected || c.collectedThisSession).length;
+  const displayedCount = computeCoinCountUp(collectedCount, clearedElapsed, CLEAR_COIN_COUNT_UP_DURATION);
+
   ctx.save();
-  ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.55)';
   ctx.fillRect(0, 0, LOGICAL_WIDTH, GAME_AREA_HEIGHT);
-  ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 48px sans-serif';
+
+  const titleY = GAME_AREA_HEIGHT / 2 - 40;
+  ctx.font = 'bold 64px sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('ステージクリア!', LOGICAL_WIDTH / 2, GAME_AREA_HEIGHT / 2);
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 8;
+  ctx.strokeStyle = '#8a5a00';
+  ctx.strokeText('ステージクリア!', LOGICAL_WIDTH / 2, titleY);
+  ctx.fillStyle = '#ffd23f';
+  ctx.fillText('ステージクリア!', LOGICAL_WIDTH / 2, titleY);
+
+  if (state.stage.coins.length > 0) {
+    const coinY = titleY + 70;
+    ctx.font = 'bold 28px sans-serif';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(`コイン ${displayedCount} / ${state.stage.coins.length}`, LOGICAL_WIDTH / 2, coinY);
+  }
   ctx.restore();
 }
 
@@ -799,6 +907,9 @@ export function renderGame(
   walletCount = 0,
   effects?: EffectsManagerView,
   background?: BackgroundLayers,
+  /** クリア画面のリザルト演出(コインのカウントアップ)用: 'clear'シーンになってからの経過秒数。
+   * 省略時はInfinity扱いにし、即座に最終値を表示する(playing中は未使用) */
+  clearedElapsed = Infinity,
 ): void {
   ctx.clearRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
 
@@ -847,10 +958,10 @@ export function renderGame(
     drawVignette(ctx, vignetteAlpha);
   }
 
-  drawHud(ctx, state, walletCount);
-  drawPaletteArea(ctx, state);
+  drawHud(ctx, assets, state, walletCount);
+  drawPaletteArea(ctx, state, animTime, effects);
 
   if (state.status === GameStatus.Cleared) {
-    drawClearOverlay(ctx);
+    drawClearOverlay(ctx, state, clearedElapsed);
   }
 }

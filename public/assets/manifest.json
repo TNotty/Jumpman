@@ -16,5 +16,6 @@
   "block_falling": { "src": "blocks/falling.svg", "frameW": 32, "frameH": 32, "frames": 1 },
   "goal_flag": { "src": "flags/goal.svg", "frameW": 32, "frameH": 48, "frames": 1 },
   "checkpoint_flag": { "src": "flags/checkpoint.svg", "frameW": 32, "frameH": 48, "frames": 1 },
-  "coin": { "src": "items/coin.svg", "frameW": 32, "frameH": 32, "frames": 1 }
+  "coin": { "src": "items/coin.svg", "frameW": 32, "frameH": 32, "frames": 1 },
+  "heart": { "src": "items/heart.svg", "frameW": 24, "frameH": 24, "frames": 2 }
 }

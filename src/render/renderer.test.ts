@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { TileGrid } from '../core/grid';
 import { BlockType, EnemyType } from '../core/types';
-import { coinRenderState, computeTileEdgeFlags, selectEnemySprite, selectJumpmanSprite } from './renderer';
+import {
+  coinRenderState,
+  computeCoinCountUp,
+  computeHeartStates,
+  computeTileEdgeFlags,
+  selectEnemySprite,
+  selectJumpmanSprite,
+} from './renderer';
 
 describe('computeTileEdgeFlags(オートタイリングの隣接判定)', () => {
   function buildGrid(rows: string[]): TileGrid {
@@ -196,5 +203,52 @@ describe('selectEnemySprite(状態→スプライト名+フレームindex)', () 
       frames.add(frameIndex);
     }
     expect(frames.size).toBe(4);
+  });
+});
+
+describe('computeHeartStates(HP→ハート型の満/空 一覧)', () => {
+  it('hp=3, maxHp=5なら[full,full,full,empty,empty]になる', () => {
+    expect(computeHeartStates(3, 5)).toEqual(['full', 'full', 'full', 'empty', 'empty']);
+  });
+
+  it('hp=0なら全てempty', () => {
+    expect(computeHeartStates(0, 5)).toEqual(['empty', 'empty', 'empty', 'empty', 'empty']);
+  });
+
+  it('hp=maxHpなら全てfull', () => {
+    expect(computeHeartStates(5, 5)).toEqual(['full', 'full', 'full', 'full', 'full']);
+  });
+
+  it('要素数は常にmaxHp(強化でmaxHpが5〜15まで変わる場合に対応)', () => {
+    expect(computeHeartStates(10, 12)).toHaveLength(12);
+  });
+
+  it('maxHp=0なら空配列', () => {
+    expect(computeHeartStates(0, 0)).toEqual([]);
+  });
+});
+
+describe('computeCoinCountUp(クリア画面のコイン数カウントアップ)', () => {
+  it('経過0秒では0を返す', () => {
+    expect(computeCoinCountUp(5, 0, 0.8)).toBe(0);
+  });
+
+  it('経過時間がduration以上ならtargetCountをそのまま返す', () => {
+    expect(computeCoinCountUp(5, 0.8, 0.8)).toBe(5);
+    expect(computeCoinCountUp(5, 10, 0.8)).toBe(5);
+  });
+
+  it('経過時間の割合に応じて線形に増える(四捨五入)', () => {
+    expect(computeCoinCountUp(4, 0.4, 0.8)).toBe(2); // 半分経過→半分
+    expect(computeCoinCountUp(5, 0.4, 0.8)).toBe(3); // 5*0.5=2.5→四捨五入で3
+  });
+
+  it('duration=0なら即座にtargetCountを返す(0除算を避ける)', () => {
+    expect(computeCoinCountUp(5, 0, 0)).toBe(5);
+  });
+
+  it('targetCount=0なら常に0', () => {
+    expect(computeCoinCountUp(0, 0.4, 0.8)).toBe(0);
+    expect(computeCoinCountUp(0, 1, 0.8)).toBe(0);
   });
 });

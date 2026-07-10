@@ -39,6 +39,8 @@ export interface ThemeDefinition {
   tile: TileTintTheme;
   /** エディタキャンバスの背景反映用(パララックスは不要、軽い単色でよい) */
   editorBackground: string;
+  /** ステージ選択カードのヘッダ色(草原=緑系、洞窟=青灰系) */
+  cardHeaderColor: string;
 }
 
 const GRASS_THEME: ThemeDefinition = {
@@ -53,6 +55,7 @@ const GRASS_THEME: ThemeDefinition = {
     innerShade: 'rgba(0, 0, 0, 0.25)',
   },
   editorBackground: '#2b4a63',
+  cardHeaderColor: '#2f7d46',
 };
 
 const CAVE_THEME: ThemeDefinition = {
@@ -67,6 +70,7 @@ const CAVE_THEME: ThemeDefinition = {
     innerShade: 'rgba(0, 0, 0, 0.35)',
   },
   editorBackground: '#141420',
+  cardHeaderColor: '#3d4f66',
 };
 
 const THEMES: Record<string, ThemeDefinition> = {
