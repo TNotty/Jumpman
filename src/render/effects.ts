@@ -10,7 +10,7 @@
 // - パーティクルは固定長プール(既定512)のリングバッファ。満杯時は最も古いスロットを
 //   上書きする(GC負荷ゼロ・メモリ上限が保証される軽量実装)。
 import type { Command } from '../core/commands';
-import { JUMPMAN_HEIGHT, JUMPMAN_WIDTH, TILE_SIZE } from '../core/constants';
+import { ENEMY_HEIGHT, ENEMY_WIDTH, JUMPMAN_HEIGHT, JUMPMAN_WIDTH, TILE_SIZE } from '../core/constants';
 import type { GameState } from '../core/game';
 import { breakableStage } from '../core/blocks';
 import { expandTerrainCells } from '../core/placement';
@@ -30,9 +30,12 @@ export type EffectEvent =
   | { kind: 'death'; x: number; y: number }
   | { kind: 'respawn'; x: number; y: number }
   | { kind: 'placementSuccess'; cells: readonly { x: number; y: number }[] }
-  | { kind: 'goalReached'; x: number; y: number };
+  | { kind: 'goalReached'; x: number; y: number }
+  | { kind: 'enemyDamage'; enemyId: number; x: number; y: number };
 
 const JUMPMAN_CENTER_X = JUMPMAN_WIDTH / 2;
+const ENEMY_CENTER_X = ENEMY_WIDTH / 2;
+const ENEMY_CENTER_Y = ENEMY_HEIGHT / 2;
 
 /**
  * 2つの連続したGameStateスナップショット(1フレーム前後)とそのフレームに渡したcommandsから、
@@ -131,6 +134,17 @@ export function detectEffectEvents(prev: GameState, next: GameState, commands: r
     );
     if (placedCells.length > 0) {
       events.push({ kind: 'placementSuccess', cells: placedCells.map((c) => ({ x: c.x, y: c.y })) });
+    }
+  }
+
+  // 敵の被弾: idで対応付けてhpの減少を見る(トゲ接触ダメージ。core/enemies.tsのapplySpikeDamage参照)。
+  // 敵は死亡復帰時にresetEnemy()でhpが全快するが、それはjumpmanと違うフレーム(死亡復帰は
+  // jumpman側のrespawnと同時)に起きるだけで「減少」ではないため、素直にhp減少だけを見ればよい。
+  const prevEnemyById = new Map(prev.enemies.map((e) => [e.id, e] as const));
+  for (const enemy of next.enemies) {
+    const prevEnemy = prevEnemyById.get(enemy.id);
+    if (prevEnemy && enemy.hp < prevEnemy.hp) {
+      events.push({ kind: 'enemyDamage', enemyId: enemy.id, x: enemy.x + ENEMY_CENTER_X, y: enemy.y + ENEMY_CENTER_Y });
     }
   }
 
@@ -264,6 +278,7 @@ export const EVENT_PARTICLE_COUNTS: Record<EffectEvent['kind'], number> = {
   respawn: 14,
   placementSuccess: 0, // パーティクルではなくセルごとのポップアニメで表現する(下記参照)
   goalReached: 20, // ゴール到達時の初期バースト(以降はconfettiモードで継続生成)
+  enemyDamage: 0, // パーティクルではなく敵スプライトの白点滅(getEnemyFlashAlpha)で表現する
 };
 
 /** 紙吹雪(継続生成)を1フレームあたり何個生成するか */
@@ -299,6 +314,10 @@ const PLACEMENT_POP_DURATION = 0.18;
 const SQUASH_STRETCH_DURATION = 0.1;
 const SQUASH_TARGET_SCALE_Y = 0.72; // 着地: 縦潰れ
 const STRETCH_TARGET_SCALE_Y = 1.28; // ジャンプ踏切: 縦伸び
+/** 死亡→リスポーンの短時間、ジャンプマンの「やられポーズ」(jumpman_dead)を表示する時間(秒) */
+const DEATH_POSE_DURATION = 0.35;
+/** 敵の被弾点滅(トゲ等でダメージを受けた際、短く白く点滅する)の表示時間(秒) */
+const ENEMY_FLASH_DURATION = 0.15;
 
 function easeOutQuad(t: number): number {
   return 1 - (1 - t) * (1 - t);
@@ -323,6 +342,11 @@ export interface EffectsManagerView {
    * 0.1秒程度で1(等倍)へ戻る。描画変形のみに使う想定(当たり判定はcore側のJUMPMAN_WIDTH/
    * HEIGHTのまま変わらない)。 */
   getSquashStretch(): { scaleX: number; scaleY: number };
+  /** 死亡→リスポーンの短時間trueになる(この間、renderer側は通常のrun/jumpの代わりに
+   * jumpman_dead(やられポーズ)を表示する)。 */
+  isDeathPoseActive(): boolean;
+  /** 指定した敵(id)の被弾点滅の不透明度(0=通常、1=最大)。トゲ等で被弾した直後に短く発火する。 */
+  getEnemyFlashAlpha(enemyId: number): number;
   renderParticles(ctx: CanvasRenderingContext2D, camera: CameraState): void;
 }
 
@@ -389,6 +413,15 @@ export function createEffectsManager(capacity: number = DEFAULT_PARTICLE_POOL_CA
     squashStretchTriggered = true;
     squashStretchTargetY = targetScaleY;
   }
+
+  // 死亡→リスポーンの「やられポーズ」表示ウィンドウ(タイマーは経過済み初期値=非表示スタート)
+  let deathPoseTimer: Timer = { elapsed: DEATH_POSE_DURATION, duration: DEATH_POSE_DURATION };
+  function triggerDeathPose(): void {
+    deathPoseTimer = { elapsed: 0, duration: DEATH_POSE_DURATION };
+  }
+
+  // 敵の被弾点滅: 敵id -> 経過時間(placementPopsと同じMapベースの管理方式)
+  const enemyFlashes = new Map<number, number>();
 
   function triggerShake(): void {
     shakeTimer = { elapsed: 0, duration: SHAKE_DURATION };
@@ -493,6 +526,7 @@ export function createEffectsManager(capacity: number = DEFAULT_PARTICLE_POOL_CA
           gravity: 2,
         });
         triggerShake();
+        triggerDeathPose();
         break;
       case 'respawn':
         // 光柱: 足元から真上に立ち上る光の粒子(放射状ではなく縦方向に偏らせる)
@@ -530,6 +564,9 @@ export function createEffectsManager(capacity: number = DEFAULT_PARTICLE_POOL_CA
         // カメラは'clear'シーン中ほぼ静止しているため、ワールド座標に固定してよい。
         confettiCenterX = event.x;
         confettiOriginY = event.y - 12;
+        break;
+      case 'enemyDamage':
+        enemyFlashes.set(event.enemyId, 0);
         break;
       default:
         break;
@@ -570,6 +607,7 @@ export function createEffectsManager(capacity: number = DEFAULT_PARTICLE_POOL_CA
       vignetteTimer = tickTimer(vignetteTimer, dt);
       zoomTimer = tickTimer(zoomTimer, dt);
       squashStretchTimer = tickTimer(squashStretchTimer, dt);
+      deathPoseTimer = tickTimer(deathPoseTimer, dt);
       spawnConfetti(dt);
 
       for (let i = floatTexts.length - 1; i >= 0; i--) {
@@ -586,6 +624,14 @@ export function createEffectsManager(capacity: number = DEFAULT_PARTICLE_POOL_CA
           else placementPops.set(key, next);
         }
       }
+
+      if (enemyFlashes.size > 0) {
+        for (const [id, elapsed] of enemyFlashes) {
+          const next = elapsed + dt;
+          if (next >= ENEMY_FLASH_DURATION) enemyFlashes.delete(id);
+          else enemyFlashes.set(id, next);
+        }
+      }
     },
     reset() {
       clearParticlePool(pool);
@@ -595,11 +641,13 @@ export function createEffectsManager(capacity: number = DEFAULT_PARTICLE_POOL_CA
       zoomTriggered = false;
       squashStretchTimer = { elapsed: SQUASH_STRETCH_DURATION, duration: SQUASH_STRETCH_DURATION };
       squashStretchTriggered = false;
+      deathPoseTimer = { elapsed: DEATH_POSE_DURATION, duration: DEATH_POSE_DURATION };
       confettiActive = false;
       confettiCarry = 0;
       confettiCenterX = 0;
       confettiOriginY = 0;
       placementPops.clear();
+      enemyFlashes.clear();
       floatTexts.length = 0;
     },
     getShakeOffset() {
@@ -630,6 +678,14 @@ export function createEffectsManager(capacity: number = DEFAULT_PARTICLE_POOL_CA
       // 体積感を保つ簡易近似(縦に伸びたら横は少し縮む、縦に潰れたら横は少し広がる)
       const scaleX = 1 + (1 - squashStretchTargetY) * remaining;
       return { scaleX, scaleY };
+    },
+    isDeathPoseActive() {
+      return timerActive(deathPoseTimer);
+    },
+    getEnemyFlashAlpha(enemyId) {
+      const elapsed = enemyFlashes.get(enemyId);
+      if (elapsed === undefined) return 0;
+      return Math.max(0, 1 - elapsed / ENEMY_FLASH_DURATION);
     },
     renderParticles(ctx, camera) {
       // パーティクル座標はコイン/敵などと同じ「タイル単位のワールド座標」で保持し、

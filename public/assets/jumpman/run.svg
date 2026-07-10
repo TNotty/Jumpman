@@ -1,34 +1,98 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="48" viewBox="0 0 128 48">
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="48" viewBox="0 0 256 48">
   <g transform="translate(0,0)">
+  <g>
+    <ellipse cx="16" cy="24" rx="7" ry="9" fill="#2c3e50" stroke="#16202a" stroke-width="1.2"/>
+    <ellipse cx="13.3" cy="21.3" rx="2.6" ry="4.05" fill="#3d5a75" opacity="0.55"/>
+    <line x1="16" y1="18" x2="16" y2="30" stroke="#34495e" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="16" y1="18" x2="16" y2="30" stroke="#34495e" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="16" y1="31" x2="16" y2="45" stroke="#1b2733" stroke-width="3.6" stroke-linecap="round"/>
+    <line x1="16" y1="31" x2="16" y2="45" stroke="#1b2733" stroke-width="3.6" stroke-linecap="round"/>
     <circle cx="16" cy="10" r="6" fill="#f1c27d" stroke="#333333" stroke-width="1.5"/>
-    <line x1="16" y1="16" x2="16" y2="32" stroke="#2c3e50" stroke-width="3"/>
-    <line x1="16" y1="20" x2="24" y2="24" stroke="#2c3e50" stroke-width="3"/>
-    <line x1="16" y1="20" x2="8" y2="28" stroke="#2c3e50" stroke-width="3"/>
-    <line x1="16" y1="32" x2="24" y2="44" stroke="#2c3e50" stroke-width="3"/>
-    <line x1="16" y1="32" x2="8" y2="40" stroke="#2c3e50" stroke-width="3"/>
+    
+  </g>
   </g>
   <g transform="translate(32,0)">
-    <circle cx="16" cy="10" r="6" fill="#f1c27d" stroke="#333333" stroke-width="1.5"/>
-    <line x1="16" y1="16" x2="16" y2="32" stroke="#2c3e50" stroke-width="3"/>
-    <line x1="16" y1="20" x2="22" y2="28" stroke="#2c3e50" stroke-width="3"/>
-    <line x1="16" y1="20" x2="10" y2="24" stroke="#2c3e50" stroke-width="3"/>
-    <line x1="16" y1="32" x2="18" y2="46" stroke="#2c3e50" stroke-width="3"/>
-    <line x1="16" y1="32" x2="14" y2="46" stroke="#2c3e50" stroke-width="3"/>
+  <g>
+    <ellipse cx="16" cy="24" rx="7" ry="9" fill="#2c3e50" stroke="#16202a" stroke-width="1.2"/>
+    <ellipse cx="13.3" cy="21.3" rx="2.6" ry="4.05" fill="#3d5a75" opacity="0.55"/>
+    <line x1="16" y1="18" x2="19.78" y2="29.39" stroke="#34495e" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="16" y1="18" x2="12.22" y2="29.39" stroke="#34495e" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="16" y1="31" x2="10.73" y2="42.82" stroke="#1b2733" stroke-width="3.6" stroke-linecap="round"/>
+    <line x1="16" y1="31" x2="21.27" y2="42.82" stroke="#1b2733" stroke-width="3.6" stroke-linecap="round"/>
+    <circle cx="16" cy="8.8" r="6" fill="#f1c27d" stroke="#333333" stroke-width="1.5"/>
+    
+  </g>
   </g>
   <g transform="translate(64,0)">
+  <g>
+    <ellipse cx="16" cy="24" rx="7" ry="9" fill="#2c3e50" stroke="#16202a" stroke-width="1.2"/>
+    <ellipse cx="13.3" cy="21.3" rx="2.6" ry="4.05" fill="#3d5a75" opacity="0.55"/>
+    <line x1="16" y1="18" x2="21.26" y2="28.79" stroke="#34495e" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="16" y1="18" x2="10.74" y2="28.79" stroke="#34495e" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="16" y1="31" x2="9.01" y2="41.36" stroke="#1b2733" stroke-width="3.6" stroke-linecap="round"/>
+    <line x1="16" y1="31" x2="22.99" y2="41.36" stroke="#1b2733" stroke-width="3.6" stroke-linecap="round"/>
     <circle cx="16" cy="10" r="6" fill="#f1c27d" stroke="#333333" stroke-width="1.5"/>
-    <line x1="16" y1="16" x2="16" y2="32" stroke="#2c3e50" stroke-width="3"/>
-    <line x1="16" y1="20" x2="8" y2="24" stroke="#2c3e50" stroke-width="3"/>
-    <line x1="16" y1="20" x2="24" y2="28" stroke="#2c3e50" stroke-width="3"/>
-    <line x1="16" y1="32" x2="8" y2="44" stroke="#2c3e50" stroke-width="3"/>
-    <line x1="16" y1="32" x2="24" y2="40" stroke="#2c3e50" stroke-width="3"/>
+    
+  </g>
   </g>
   <g transform="translate(96,0)">
+  <g>
+    <ellipse cx="16" cy="24" rx="7" ry="9" fill="#2c3e50" stroke="#16202a" stroke-width="1.2"/>
+    <ellipse cx="13.3" cy="21.3" rx="2.6" ry="4.05" fill="#3d5a75" opacity="0.55"/>
+    <line x1="16" y1="18" x2="19.78" y2="29.39" stroke="#34495e" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="16" y1="18" x2="12.22" y2="29.39" stroke="#34495e" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="16" y1="31" x2="10.73" y2="42.82" stroke="#1b2733" stroke-width="3.6" stroke-linecap="round"/>
+    <line x1="16" y1="31" x2="21.27" y2="42.82" stroke="#1b2733" stroke-width="3.6" stroke-linecap="round"/>
+    <circle cx="16" cy="8.8" r="6" fill="#f1c27d" stroke="#333333" stroke-width="1.5"/>
+    
+  </g>
+  </g>
+  <g transform="translate(128,0)">
+  <g>
+    <ellipse cx="16" cy="24" rx="7" ry="9" fill="#2c3e50" stroke="#16202a" stroke-width="1.2"/>
+    <ellipse cx="13.3" cy="21.3" rx="2.6" ry="4.05" fill="#3d5a75" opacity="0.55"/>
+    <line x1="16" y1="18" x2="16" y2="30" stroke="#34495e" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="16" y1="18" x2="16" y2="30" stroke="#34495e" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="16" y1="31" x2="16" y2="45" stroke="#1b2733" stroke-width="3.6" stroke-linecap="round"/>
+    <line x1="16" y1="31" x2="16" y2="45" stroke="#1b2733" stroke-width="3.6" stroke-linecap="round"/>
     <circle cx="16" cy="10" r="6" fill="#f1c27d" stroke="#333333" stroke-width="1.5"/>
-    <line x1="16" y1="16" x2="16" y2="32" stroke="#2c3e50" stroke-width="3"/>
-    <line x1="16" y1="20" x2="10" y2="28" stroke="#2c3e50" stroke-width="3"/>
-    <line x1="16" y1="20" x2="22" y2="24" stroke="#2c3e50" stroke-width="3"/>
-    <line x1="16" y1="32" x2="14" y2="46" stroke="#2c3e50" stroke-width="3"/>
-    <line x1="16" y1="32" x2="18" y2="46" stroke="#2c3e50" stroke-width="3"/>
+    
+  </g>
+  </g>
+  <g transform="translate(160,0)">
+  <g>
+    <ellipse cx="16" cy="24" rx="7" ry="9" fill="#2c3e50" stroke="#16202a" stroke-width="1.2"/>
+    <ellipse cx="13.3" cy="21.3" rx="2.6" ry="4.05" fill="#3d5a75" opacity="0.55"/>
+    <line x1="16" y1="18" x2="12.22" y2="29.39" stroke="#34495e" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="16" y1="18" x2="19.78" y2="29.39" stroke="#34495e" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="16" y1="31" x2="21.27" y2="42.82" stroke="#1b2733" stroke-width="3.6" stroke-linecap="round"/>
+    <line x1="16" y1="31" x2="10.73" y2="42.82" stroke="#1b2733" stroke-width="3.6" stroke-linecap="round"/>
+    <circle cx="16" cy="8.8" r="6" fill="#f1c27d" stroke="#333333" stroke-width="1.5"/>
+    
+  </g>
+  </g>
+  <g transform="translate(192,0)">
+  <g>
+    <ellipse cx="16" cy="24" rx="7" ry="9" fill="#2c3e50" stroke="#16202a" stroke-width="1.2"/>
+    <ellipse cx="13.3" cy="21.3" rx="2.6" ry="4.05" fill="#3d5a75" opacity="0.55"/>
+    <line x1="16" y1="18" x2="10.74" y2="28.79" stroke="#34495e" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="16" y1="18" x2="21.26" y2="28.79" stroke="#34495e" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="16" y1="31" x2="22.99" y2="41.36" stroke="#1b2733" stroke-width="3.6" stroke-linecap="round"/>
+    <line x1="16" y1="31" x2="9.01" y2="41.36" stroke="#1b2733" stroke-width="3.6" stroke-linecap="round"/>
+    <circle cx="16" cy="10" r="6" fill="#f1c27d" stroke="#333333" stroke-width="1.5"/>
+    
+  </g>
+  </g>
+  <g transform="translate(224,0)">
+  <g>
+    <ellipse cx="16" cy="24" rx="7" ry="9" fill="#2c3e50" stroke="#16202a" stroke-width="1.2"/>
+    <ellipse cx="13.3" cy="21.3" rx="2.6" ry="4.05" fill="#3d5a75" opacity="0.55"/>
+    <line x1="16" y1="18" x2="12.22" y2="29.39" stroke="#34495e" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="16" y1="18" x2="19.78" y2="29.39" stroke="#34495e" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="16" y1="31" x2="21.27" y2="42.82" stroke="#1b2733" stroke-width="3.6" stroke-linecap="round"/>
+    <line x1="16" y1="31" x2="10.73" y2="42.82" stroke="#1b2733" stroke-width="3.6" stroke-linecap="round"/>
+    <circle cx="16" cy="8.8" r="6" fill="#f1c27d" stroke="#333333" stroke-width="1.5"/>
+    
+  </g>
   </g>
 </svg>

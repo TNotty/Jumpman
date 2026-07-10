@@ -59,6 +59,77 @@ export function enemySpriteName(type: EnemyType): string {
   }
 }
 
+/** フレーム選択(スプライト名+フレームindex+左右反転)の結果。renderer内の各draw*関数が消費する。 */
+export interface SpriteSelection {
+  spriteName: string;
+  frameIndex: number;
+  flipX: boolean;
+}
+
+export interface JumpmanSpriteInput {
+  grounded: boolean;
+  velocityY: number;
+  facing: 1 | -1;
+  /** invincibleTimer > 0 (被弾直後、ノックバック+無敵点滅の間ずっとtrue) */
+  invincible: boolean;
+  /** 死亡→リスポーンの短時間trueになる(EffectsManager.isDeathPoseActive()由来) */
+  showDeathPose: boolean;
+  animTime: number;
+}
+
+/**
+ * ジャンプマンの状態(時間ベース+状態ベース)→スプライト名+フレームindex+左右反転、を導出する
+ * 純関数。GameState/EffectsManagerViewへは依存せず、必要な値だけを引数で受け取ることで
+ * 単体テスト可能にしている。squash&stretch(P1のEffectsManager)は描画変形として別途適用される
+ * ものなので、ここでは関与しない(スプライト選択とsquash&stretchは独立して両立する)。
+ *
+ * 優先順位: 死亡ポーズ > 被弾(のけぞり) > 空中(上昇/落下) > 走行
+ * (このゲームは常に自動走行中で完全静止しない=jumpman_idleは実際のプレイ中には選ばれない。
+ * idleはマップエディタの静止プレビュー専用として現状どおり別途直接参照される)。
+ */
+export function selectJumpmanSprite(input: JumpmanSpriteInput): SpriteSelection {
+  const flipX = input.facing === -1;
+
+  if (input.showDeathPose) {
+    return { spriteName: 'jumpman_dead', frameIndex: 0, flipX };
+  }
+  if (input.invincible) {
+    return { spriteName: 'jumpman_hit', frameIndex: 0, flipX };
+  }
+  if (!input.grounded) {
+    // 上昇ポーズ(frame0)/落下ポーズ(frame1)をvyの符号で切り替える
+    return { spriteName: 'jumpman_jump', frameIndex: input.velocityY < 0 ? 0 : 1, flipX };
+  }
+  return { spriteName: 'jumpman_run', frameIndex: Math.floor(input.animTime * 16) % 8, flipX };
+}
+
+export interface EnemySpriteInput {
+  type: EnemyType;
+  grounded: boolean;
+  velocityY: number;
+  animTime: number;
+}
+
+/**
+ * 敵の状態(時間ベース+状態ベース)→スプライト名+フレームindex、を導出する純関数。
+ * - スライム/鳥: 時間ベースの周回アニメ(常時ループ)。
+ * - カエル: 状態ベース(接地中=しゃがみ溜め[0]、上昇中=伸び上がり[1]、下降中=通常[2])。
+ */
+export function selectEnemySprite(input: EnemySpriteInput): SpriteSelection {
+  const spriteName = enemySpriteName(input.type);
+  switch (input.type) {
+    case EnemyType.Frog: {
+      const frameIndex = input.grounded ? 0 : input.velocityY < 0 ? 1 : 2;
+      return { spriteName, frameIndex, flipX: false };
+    }
+    case EnemyType.Bird:
+      return { spriteName, frameIndex: Math.floor(input.animTime * 8) % 4, flipX: false };
+    case EnemyType.Slime:
+    default:
+      return { spriteName, frameIndex: Math.floor(input.animTime * 6) % 4, flipX: false };
+  }
+}
+
 /**
  * 通常ブロック(N)のオートタイリング用: 上下左右の隣接セルが非固体(=空いている)かどうかを
  * 判定する純関数。core層のTileGrid.isSolid()をそのまま使う(壊れる/トゲ/落ちるブロックも
@@ -307,19 +378,39 @@ function drawCoins(
   });
 }
 
+/** 敵の被弾点滅: スプライトの上に同形状の白い矩形を重ねてalpha分だけ不透明にする軽量な表現
+ * (差し替えアセットを増やさず、既存スプライトの上に手続き描画で重ねる=P2のオートタイリングと
+ * 同じ考え方)。 */
+function drawEnemyFlashOverlay(ctx: CanvasRenderingContext2D, destX: number, destY: number, alpha: number): void {
+  if (alpha <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.globalCompositeOperation = 'lighter';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(destX, destY, TILE_SIZE, TILE_SIZE);
+  ctx.restore();
+}
+
 function drawEnemies(
   ctx: CanvasRenderingContext2D,
   assets: AssetStore,
   state: GameState,
   camera: CameraState,
   animTime: number,
+  effects?: EffectsManagerView,
 ): void {
-  const frame = Math.floor(animTime * 4) % 2;
   for (const enemy of state.enemies) {
     if (!enemy.alive) continue;
     const destX = enemy.x * TILE_SIZE - camera.x;
     const destY = enemy.y * TILE_SIZE - camera.y;
-    drawSprite(ctx, assets, enemySpriteName(enemy.type), frame, destX, destY, TILE_SIZE, TILE_SIZE);
+    const { spriteName, frameIndex } = selectEnemySprite({
+      type: enemy.type,
+      grounded: enemy.grounded,
+      velocityY: enemy.velocity.y,
+      animTime,
+    });
+    drawSprite(ctx, assets, spriteName, frameIndex, destX, destY, TILE_SIZE, TILE_SIZE);
+    drawEnemyFlashOverlay(ctx, destX, destY, effects?.getEnemyFlashAlpha(enemy.id) ?? 0);
   }
 }
 
@@ -337,17 +428,25 @@ function drawJumpman(
   const destW = JUMPMAN_WIDTH * TILE_SIZE;
   const destH = JUMPMAN_HEIGHT * TILE_SIZE;
 
-  const spriteName = jumpman.grounded ? 'jumpman_run' : 'jumpman_jump';
-  const frame = jumpman.grounded ? Math.floor(animTime * 8) % 4 : 0;
+  const { spriteName, frameIndex, flipX } = selectJumpmanSprite({
+    grounded: jumpman.grounded,
+    velocityY: jumpman.velocity.y,
+    facing: jumpman.facing,
+    invincible: jumpman.invincibleTimer > 0,
+    showDeathPose: effects?.isDeathPoseActive() ?? false,
+    animTime,
+  });
 
   ctx.save();
   if (jumpman.invincibleTimer > 0 && Math.floor(animTime * 10) % 2 === 0) {
     ctx.globalAlpha = 0.4;
   }
 
-  // squash&stretch: 着地/ジャンプ踏切イベントに合わせた描画変形のみ(当たり判定=JUMPMAN_WIDTH/
-  // HEIGHTには一切影響しない)。足元(スプライトの下端中央)を不動点にして拡縮する。
-  const { scaleX, scaleY } = effects?.getSquashStretch() ?? { scaleX: 1, scaleY: 1 };
+  // squash&stretch(P1)+左右反転(facing)は同じ「足元(スプライト下端中央)を不動点にした
+  // scale変形」に両方まとめて合成する。squash&stretch単体のときに壊れないよう、flipXがfalseの
+  // ときはscaleXの符号をそのまま(反転なし)にする。
+  const { scaleX: stretchScaleX, scaleY } = effects?.getSquashStretch() ?? { scaleX: 1, scaleY: 1 };
+  const scaleX = flipX ? -stretchScaleX : stretchScaleX;
   if (scaleX !== 1 || scaleY !== 1) {
     const anchorX = destX + destW / 2;
     const anchorY = destY + destH;
@@ -356,7 +455,7 @@ function drawJumpman(
     ctx.translate(-anchorX, -anchorY);
   }
 
-  drawSprite(ctx, assets, spriteName, frame, destX, destY, destW, destH);
+  drawSprite(ctx, assets, spriteName, frameIndex, destX, destY, destW, destH);
   ctx.restore();
 }
 
@@ -734,7 +833,7 @@ export function renderGame(
   drawFallingBlocks(ctx, assets, state, camera);
   drawFlags(ctx, assets, state, camera, animTime);
   drawCoins(ctx, assets, state, camera, animTime);
-  drawEnemies(ctx, assets, state, camera, animTime);
+  drawEnemies(ctx, assets, state, camera, animTime, effects);
   drawJumpman(ctx, assets, state, camera, animTime, effects);
   if (state.status !== GameStatus.Cleared) {
     drawPlacementPreview(ctx, state, camera, hoverTile);

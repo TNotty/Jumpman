@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="48" viewBox="0 0 32 48">
+  <g transform="translate(0,0)">
+  <g>
+    <ellipse cx="16" cy="24" rx="7" ry="7" fill="#2c3e50" stroke="#16202a" stroke-width="1.2"/>
+    <ellipse cx="13.3" cy="21.9" rx="2.6" ry="3.15" fill="#3d5a75" opacity="0.55"/>
+    <line x1="16.9" y1="18" x2="13.14" y2="28.34" stroke="#34495e" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="16.9" y1="18" x2="19.75" y2="28.63" stroke="#34495e" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="16" y1="31" x2="13.15" y2="41.63" stroke="#1b2733" stroke-width="3.6" stroke-linecap="round"/>
+    <line x1="16" y1="31" x2="17.91" y2="41.83" stroke="#1b2733" stroke-width="3.6" stroke-linecap="round"/>
+    <circle cx="19" cy="14" r="6" fill="#f1c27d" stroke="#333333" stroke-width="1.5"/>
+    <line x1="16.5" y1="11.5" x2="18.5" y2="13.5" stroke="#333333" stroke-width="1"/><line x1="18.5" y1="11.5" x2="16.5" y2="13.5" stroke="#333333" stroke-width="1"/><line x1="21.5" y1="11.5" x2="19.5" y2="13.5" stroke="#333333" stroke-width="1"/><line x1="19.5" y1="11.5" x2="21.5" y2="13.5" stroke="#333333" stroke-width="1"/>
+  </g>
+  </g>
+</svg>

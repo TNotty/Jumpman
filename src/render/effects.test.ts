@@ -13,7 +13,7 @@ import {
 import { FIXED_DT } from '../core/constants';
 import { createGameState, update } from '../core/game';
 import type { GameState } from '../core/game';
-import { BlockType, GameStatus } from '../core/types';
+import { BlockType, EnemyType, GameStatus } from '../core/types';
 import type { StageData, TerrainDefinition } from '../core/types';
 import type { Command } from '../core/commands';
 
@@ -312,6 +312,29 @@ describe('detectEffectEvents', () => {
     expect(events.some((e) => e.kind === 'damage')).toBe(false);
     expect(events.some((e) => e.kind === 'coinCollected')).toBe(false);
   });
+
+  it('敵がトゲに接触してHPが減ったフレームでenemyDamageイベントが出る(該当する敵のidつき)', () => {
+    const stage = buildStage({
+      tiles: Array.from({ length: 8 }, (_, y) => {
+        if (y === 6) return '.'.repeat(10) + 'SSSS' + '.'.repeat(16);
+        if (y === 7) return 'N'.repeat(30);
+        return '.'.repeat(30);
+      }),
+      enemies: [{ type: EnemyType.Slime, x: 10, y: 4, dir: 1 }],
+    });
+    const state = createGameState(stage);
+    const { prev, next } = stepUntil(state, (p, n) => {
+      const pe = p.enemies[0];
+      const ne = n.enemies[0];
+      return !!pe && !!ne && ne.hp < pe.hp;
+    });
+    const events = detectEffectEvents(prev, next, []);
+    const damageEvents = events.filter((e) => e.kind === 'enemyDamage');
+    expect(damageEvents).toHaveLength(1);
+    const event = damageEvents[0];
+    if (event?.kind !== 'enemyDamage') throw new Error('unreachable');
+    expect(event.enemyId).toBe(next.enemies[0]?.id);
+  });
 });
 
 // --- EffectsManager(統合: イベント→パーティクル生成→時間経過で消える) ------------------------
@@ -320,6 +343,68 @@ describe('createEffectsManager', () => {
   it('初期状態ではsquash&stretchは等倍(scaleX=scaleY=1)', () => {
     const manager = createEffectsManager(32);
     expect(manager.getSquashStretch()).toEqual({ scaleX: 1, scaleY: 1 });
+  });
+
+  it('初期状態ではisDeathPoseActive=false、getEnemyFlashAlpha=0', () => {
+    const manager = createEffectsManager(32);
+    expect(manager.isDeathPoseActive()).toBe(false);
+    expect(manager.getEnemyFlashAlpha(0)).toBe(0);
+  });
+
+  it('死亡イベント(フルHPのまま落下死)でisDeathPoseActiveが一時的にtrueになり、時間経過でfalseに戻る', () => {
+    const manager = createEffectsManager(32);
+    const stage = buildStage({ tiles: Array.from({ length: 8 }, () => '.'.repeat(30)), checkpoints: [] });
+    let state: GameState = createGameState(stage);
+    let deathPrev: GameState | null = null;
+    let deathNext: GameState | null = null;
+    for (let i = 0; i < 3000; i++) {
+      const next = update(state, [], FIXED_DT);
+      const events = detectEffectEvents(state, next, []);
+      if (events.some((e) => e.kind === 'death')) {
+        deathPrev = state;
+        deathNext = next;
+        break;
+      }
+      state = next;
+    }
+    expect(deathPrev).not.toBeNull();
+    expect(deathNext).not.toBeNull();
+    if (!deathPrev || !deathNext) throw new Error('unreachable');
+
+    manager.handleFrame(deathPrev, deathNext, []);
+    expect(manager.isDeathPoseActive()).toBe(true);
+
+    for (let i = 0; i < 60; i++) manager.update(1 / 60); // 1秒進める(死亡ポーズ時間0.35sを十分超える)
+    expect(manager.isDeathPoseActive()).toBe(false);
+  });
+
+  it('enemyDamageイベントで該当敵のgetEnemyFlashAlphaが一時的に発火し、時間経過で0に戻る(他の敵には影響しない)', () => {
+    const manager = createEffectsManager(32);
+    const stage = buildStage({
+      tiles: Array.from({ length: 8 }, (_, y) => {
+        if (y === 6) return '.'.repeat(10) + 'SSSS' + '.'.repeat(16);
+        if (y === 7) return 'N'.repeat(30);
+        return '.'.repeat(30);
+      }),
+      enemies: [{ type: EnemyType.Slime, x: 10, y: 4, dir: 1 }],
+    });
+    const state = createGameState(stage);
+    const { prev, next } = stepUntil(state, (p, n) => {
+      const pe = p.enemies[0];
+      const ne = n.enemies[0];
+      return !!pe && !!ne && ne.hp < pe.hp;
+    });
+    const enemyId = next.enemies[0]?.id;
+    expect(enemyId).toBeDefined();
+    if (enemyId === undefined) throw new Error('unreachable');
+
+    expect(manager.getEnemyFlashAlpha(enemyId)).toBe(0);
+    manager.handleFrame(prev, next, []);
+    expect(manager.getEnemyFlashAlpha(enemyId)).toBeGreaterThan(0);
+    expect(manager.getEnemyFlashAlpha(enemyId + 999)).toBe(0); // 別の敵idには影響しない
+
+    for (let i = 0; i < 30; i++) manager.update(1 / 60); // 0.5秒進める(点滅時間0.15sを十分超える)
+    expect(manager.getEnemyFlashAlpha(enemyId)).toBe(0);
   });
 
   it('landedイベントで縦潰れ(scaleY<1)が発火し、0.1秒後には等倍に戻る', () => {

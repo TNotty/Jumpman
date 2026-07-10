@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { TileGrid } from '../core/grid';
-import { BlockType } from '../core/types';
-import { coinRenderState, computeTileEdgeFlags } from './renderer';
+import { BlockType, EnemyType } from '../core/types';
+import { coinRenderState, computeTileEdgeFlags, selectEnemySprite, selectJumpmanSprite } from './renderer';
 
 describe('computeTileEdgeFlags(オートタイリングの隣接判定)', () => {
   function buildGrid(rows: string[]): TileGrid {
@@ -99,5 +99,102 @@ describe('coinRenderState', () => {
 
   it('permanentlyCollectedが優先される(理論上両方trueになることは無いが、念のため)', () => {
     expect(coinRenderState({ permanentlyCollected: true, collectedThisSession: true })).toBe('dim');
+  });
+});
+
+describe('selectJumpmanSprite(状態→スプライト名+フレームindex+左右反転)', () => {
+  const base = { grounded: true, velocityY: 0, facing: 1 as const, invincible: false, showDeathPose: false, animTime: 0 };
+
+  it('showDeathPose=trueなら他の状態に関わらずjumpman_dead(frame0)になる', () => {
+    const result = selectJumpmanSprite({ ...base, grounded: false, invincible: true, showDeathPose: true });
+    expect(result.spriteName).toBe('jumpman_dead');
+    expect(result.frameIndex).toBe(0);
+  });
+
+  it('invincible=true(showDeathPose=false)ならjumpman_hit(frame0、のけぞりポーズ)になる', () => {
+    const result = selectJumpmanSprite({ ...base, invincible: true });
+    expect(result.spriteName).toBe('jumpman_hit');
+    expect(result.frameIndex).toBe(0);
+  });
+
+  it('空中(grounded=false)でvelocityY<0(上昇)ならjumpman_jumpのframe0(上昇ポーズ)になる', () => {
+    const result = selectJumpmanSprite({ ...base, grounded: false, velocityY: -10 });
+    expect(result.spriteName).toBe('jumpman_jump');
+    expect(result.frameIndex).toBe(0);
+  });
+
+  it('空中(grounded=false)でvelocityY>=0(落下)ならjumpman_jumpのframe1(落下ポーズ)になる', () => {
+    const result = selectJumpmanSprite({ ...base, grounded: false, velocityY: 5 });
+    expect(result.spriteName).toBe('jumpman_jump');
+    expect(result.frameIndex).toBe(1);
+
+    const zeroVy = selectJumpmanSprite({ ...base, grounded: false, velocityY: 0 });
+    expect(zeroVy.frameIndex).toBe(1); // vy=0は「落下」側(上昇ではない)として扱う
+  });
+
+  it('接地中はjumpman_runになり、frameIndexはanimTimeに応じて0〜7を周回する', () => {
+    expect(selectJumpmanSprite({ ...base, animTime: 0 }).spriteName).toBe('jumpman_run');
+    expect(selectJumpmanSprite({ ...base, animTime: 0 }).frameIndex).toBe(0);
+    const frames = new Set<number>();
+    for (let t = 0; t < 1; t += 1 / 60) {
+      const { frameIndex } = selectJumpmanSprite({ ...base, animTime: t });
+      expect(frameIndex).toBeGreaterThanOrEqual(0);
+      expect(frameIndex).toBeLessThan(8);
+      frames.add(frameIndex);
+    }
+    expect(frames.size).toBe(8); // 1秒の間に8フレーム全てが少なくとも1回は出現する
+  });
+
+  it('facing=-1ならflipX=true、facing=1ならflipX=false(進行方向を向く)', () => {
+    expect(selectJumpmanSprite({ ...base, facing: -1 }).flipX).toBe(true);
+    expect(selectJumpmanSprite({ ...base, facing: 1 }).flipX).toBe(false);
+  });
+
+  it('優先順位: 死亡ポーズ > 被弾のけぞり > 空中(上昇/落下) > 走行', () => {
+    // 被弾中(invincible)かつ空中(grounded=false)でも、被弾ポーズが優先される
+    const midAirHit = selectJumpmanSprite({ ...base, grounded: false, velocityY: -10, invincible: true });
+    expect(midAirHit.spriteName).toBe('jumpman_hit');
+  });
+});
+
+describe('selectEnemySprite(状態→スプライト名+フレームindex)', () => {
+  it('カエル: 接地中は常にframe0(しゃがみ溜め)になる(velocityYに関わらず)', () => {
+    const grounded = selectEnemySprite({ type: EnemyType.Frog, grounded: true, velocityY: -5, animTime: 1.23 });
+    expect(grounded.spriteName).toBe('frog');
+    expect(grounded.frameIndex).toBe(0);
+  });
+
+  it('カエル: 空中でvelocityY<0(上昇)ならframe1(伸び上がり)になる', () => {
+    const rising = selectEnemySprite({ type: EnemyType.Frog, grounded: false, velocityY: -5, animTime: 0 });
+    expect(rising.frameIndex).toBe(1);
+  });
+
+  it('カエル: 空中でvelocityY>=0(下降)ならframe2(通常)になる', () => {
+    const falling = selectEnemySprite({ type: EnemyType.Frog, grounded: false, velocityY: 5, animTime: 0 });
+    expect(falling.frameIndex).toBe(2);
+  });
+
+  it('鳥: spriteName="bird"で、frameIndexは0〜3を時間ベースで周回する', () => {
+    const result = selectEnemySprite({ type: EnemyType.Bird, grounded: false, velocityY: 0, animTime: 0 });
+    expect(result.spriteName).toBe('bird');
+    const frames = new Set<number>();
+    for (let t = 0; t < 1; t += 1 / 60) {
+      const { frameIndex } = selectEnemySprite({ type: EnemyType.Bird, grounded: false, velocityY: 0, animTime: t });
+      expect(frameIndex).toBeGreaterThanOrEqual(0);
+      expect(frameIndex).toBeLessThan(4);
+      frames.add(frameIndex);
+    }
+    expect(frames.size).toBe(4);
+  });
+
+  it('スライム: spriteName="slime"で、frameIndexは0〜3を時間ベースで周回する', () => {
+    const result = selectEnemySprite({ type: EnemyType.Slime, grounded: true, velocityY: 0, animTime: 0 });
+    expect(result.spriteName).toBe('slime');
+    const frames = new Set<number>();
+    for (let t = 0; t < 1; t += 1 / 60) {
+      const { frameIndex } = selectEnemySprite({ type: EnemyType.Slime, grounded: true, velocityY: 0, animTime: t });
+      frames.add(frameIndex);
+    }
+    expect(frames.size).toBe(4);
   });
 });
