@@ -333,13 +333,13 @@ function buildCheckpoints(width, height, layout) {
     const preX = nearestNonGapX(Math.floor((layout.START_MARGIN + first.x) / 2), layout);
     if (preX > layout.START_MARGIN + 2) {
       const topY = localTopY(preX, height, layout);
-      if (topY !== null) checkpoints.push({ x: preX, y: topY - 2 });
+      if (topY !== null) checkpoints.push({ x: preX, y: topY - 1 });
     }
   }
   for (const gap of gaps) {
     const cpX = nearestNonGapX(Math.min(width - layout.END_MARGIN - 2, gap.x + gap.width + 2), layout);
     const topY = localTopY(cpX, height, layout);
-    if (topY !== null) checkpoints.push({ x: cpX, y: topY - 2 });
+    if (topY !== null) checkpoints.push({ x: cpX, y: topY - 1 });
   }
   return checkpoints;
 }
@@ -448,8 +448,8 @@ function buildStage({ id, name, theme, seed, width, height, difficulty, mana, er
       width,
       height,
       tiles,
-      start: { x: 3, y: startTopY - 2 },
-      goal: { x: goalX, y: goalTopY - 2 },
+      start: { x: 3, y: startTopY - 1 },
+      goal: { x: goalX, y: goalTopY - 1 },
       checkpoints,
       enemies,
       mana,
