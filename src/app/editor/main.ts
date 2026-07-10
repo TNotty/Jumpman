@@ -7,6 +7,7 @@ import stage02Raw from '../../data/stages/stage02.json';
 import { AssetStore, loadAssets } from '../../render/assets';
 import { blockSpriteName, enemySpriteName } from '../../render/renderer';
 import { drawSprite } from '../../render/sprites';
+import { getTheme } from '../../render/themes';
 import { openGameDraft } from '../../platform/navigation';
 import { downloadJSON, loadJSON, readJSONFile, removeJSON, saveJSON } from '../../platform/storage';
 import { DRAFT_STAGE_STORAGE_KEY, EDIT_REQUEST_STORAGE_KEY } from '../game/main';
@@ -164,7 +165,9 @@ function main(): void {
   // クロージャ越しに効かないため)。
 
   const render = (): void => {
-    ctx.fillStyle = '#151515';
+    // パララックス背景までは不要(軽い背景色だけ)。テーマ切り替え時に見た目がすぐ反映されるよう、
+    // 毎回themes.tsから引く(edited draft.themeが変わるたびに自動追従する)。
+    ctx.fillStyle = getTheme(draft.theme).editorBackground;
     ctx.fillRect(0, 0, cssSize.width, cssSize.height);
     if (!assets) return;
 

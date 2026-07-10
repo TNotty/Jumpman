@@ -23,6 +23,8 @@ import terrainMasterRaw from '../../data/terrainMaster.json';
 import { resolveLoadoutPalette } from './loadout';
 import { applyStageCleared, isStageSelectable } from './stageUnlock';
 import { AssetStore, loadAssets } from '../../render/assets';
+import { createBackgroundLayers } from '../../render/background';
+import type { BackgroundLayers } from '../../render/background';
 import { createCamera, updateCamera } from '../../render/camera';
 import type { CameraState } from '../../render/camera';
 import { createEffectsManager } from '../../render/effects';
@@ -320,10 +322,17 @@ async function main(): Promise<void> {
   // input同様にstartPlaying()より前に生成しておく。
   const effects = createEffectsManager();
 
+  // 多層パララックス背景(テーマごとの層をプリレンダしたもの)。テーマ切替のたびに1回だけ
+  // 作り直す(=startPlaying()のたびに再生成。playing中のシーンは同じインスタンスを使い回す)。
+  // title/stageSelectシーンではrenderGame自体を呼ばないため、最初のstartPlaying()より前は
+  // 未使用(undefinedのまま=renderGame側のフォールバック描画に委ねる)でよい。
+  let backgroundLayers: BackgroundLayers | undefined;
+
   function startPlaying(stageData: StageData, stageIndex: number): Scene {
     lastPersistedTakenCount = 0;
     // 前回のプレイの余韻(振動・ビネット・紙吹雪・パーティクル)を持ち越さない。
     effects.reset();
+    backgroundLayers = createBackgroundLayers(stageData.theme);
     // プレイ開始時点の最新セーブから、強化(PlayerStats)とloadoutパレットを毎回作り直す
     // (既にプレイ中のゲームには影響しなくてよい、という要件どおり再計算はここでのみ行う)。
     paletteTerrains = resolveLoadoutPalette(save.loadout, terrainMaster, save.unlockedTerrainIds);
@@ -555,11 +564,11 @@ async function main(): Promise<void> {
         return;
       }
       if (scene.kind === 'playing') {
-        renderGame(ctx, assets, scene.game, scene.camera, animTime, input.getHoverTile(), save.wallet, effects);
+        renderGame(ctx, assets, scene.game, scene.camera, animTime, input.getHoverTile(), save.wallet, effects, backgroundLayers);
         return;
       }
       // 'clear'
-      renderGame(ctx, assets, scene.game, scene.camera, animTime, null, save.wallet, effects);
+      renderGame(ctx, assets, scene.game, scene.camera, animTime, null, save.wallet, effects, backgroundLayers);
       drawClearButtons(ctx, hasNextStage(scene.stageIndex));
     },
   });

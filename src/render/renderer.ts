@@ -11,14 +11,19 @@ import {
 } from '../core/constants';
 import { breakableSpriteStage } from '../core/blocks';
 import type { GameState } from '../core/game';
+import type { TileGrid } from '../core/grid';
 import { jumpmanAABB } from '../core/jumpman';
 import { checkErase, checkPlacement } from '../core/placement';
 import { BlockType, EnemyType, GameStatus } from '../core/types';
 import type { CoinState, PaletteSlot, TerrainDefinition } from '../core/types';
 import type { AssetStore } from './assets';
+import type { BackgroundLayers } from './background';
+import { drawBackground } from './background';
 import type { CameraState } from './camera';
 import type { EffectsManagerView } from './effects';
 import { drawSprite } from './sprites';
+import type { ThemeDefinition } from './themes';
+import { getTheme } from './themes';
 
 /**
  * BlockType(+テーマ+壊れるブロックの見た目段階) → 論理スプライト名。
@@ -54,6 +59,94 @@ export function enemySpriteName(type: EnemyType): string {
   }
 }
 
+/**
+ * 通常ブロック(N)のオートタイリング用: 上下左右の隣接セルが非固体(=空いている)かどうかを
+ * 判定する純関数。core層のTileGrid.isSolid()をそのまま使う(壊れる/トゲ/落ちるブロックも
+ * 「固体として隣接している」とみなす=通常ブロック同士の境目だけでなく、他種別のブロックと
+ * 隣接していても「囲まれている」と判定してよいため)。grid/x/yだけを受け取る純粋な読み取りで、
+ * 描画には一切触れない(render/renderer.test.tsで単体テストする)。
+ */
+export interface TileEdgeFlags {
+  topOpen: boolean;
+  bottomOpen: boolean;
+  leftOpen: boolean;
+  rightOpen: boolean;
+}
+
+export function computeTileEdgeFlags(grid: TileGrid, x: number, y: number): TileEdgeFlags {
+  return {
+    topOpen: !grid.isSolid(x, y - 1),
+    bottomOpen: !grid.isSolid(x, y + 1),
+    leftOpen: !grid.isSolid(x - 1, y),
+    rightOpen: !grid.isSolid(x + 1, y),
+  };
+}
+
+/**
+ * 通常ブロックのスプライトの上に、隣接状況に応じた縁取り/内部陰影を手続き描画で重ねる
+ * (アセット差し替えではなく既存スプライトへの上塗りなので、差し替え可能な構造を壊さない。
+ * プレイヤーが生成した通常ブロックにも同じ判定がそのまま効く)。
+ * - 四方すべて塞がっている(囲まれている): 暗めの内部模様を重ねる。
+ * - 上が空: 上端にハイライトの縁(草原=草の縁、洞窟=ハイライトの縁)。
+ * - 左/右が空: その側に陰影の縁。
+ * - 角(上+左または上+右が両方空): 縁が丸く折り返るハイライトを角に追加する。
+ */
+function drawTileAutoTileOverlay(
+  ctx: CanvasRenderingContext2D,
+  theme: ThemeDefinition,
+  destX: number,
+  destY: number,
+  edges: TileEdgeFlags,
+): void {
+  const { topOpen, leftOpen, rightOpen, bottomOpen } = edges;
+
+  if (!topOpen && !leftOpen && !rightOpen && !bottomOpen) {
+    ctx.save();
+    ctx.fillStyle = theme.tile.innerShade;
+    ctx.fillRect(destX, destY, TILE_SIZE, TILE_SIZE);
+    ctx.restore();
+    return;
+  }
+
+  const edgeThickness = Math.max(2, Math.round(TILE_SIZE * 0.14));
+  ctx.save();
+
+  if (topOpen) {
+    ctx.fillStyle = theme.tile.edgeHighlight;
+    ctx.fillRect(destX, destY, TILE_SIZE, edgeThickness);
+  }
+  if (leftOpen) {
+    ctx.fillStyle = theme.tile.edgeShadow;
+    ctx.fillRect(destX, destY, edgeThickness, TILE_SIZE);
+  }
+  if (rightOpen) {
+    ctx.fillStyle = theme.tile.edgeShadow;
+    ctx.fillRect(destX + TILE_SIZE - edgeThickness, destY, edgeThickness, TILE_SIZE);
+  }
+
+  // 角: 上端のハイライトが角で丸く折り返っているように見せる三角形を追加する
+  if (topOpen && leftOpen) {
+    ctx.fillStyle = theme.tile.edgeHighlight;
+    ctx.beginPath();
+    ctx.moveTo(destX, destY);
+    ctx.lineTo(destX + edgeThickness * 2, destY);
+    ctx.lineTo(destX, destY + edgeThickness * 2);
+    ctx.closePath();
+    ctx.fill();
+  }
+  if (topOpen && rightOpen) {
+    ctx.fillStyle = theme.tile.edgeHighlight;
+    ctx.beginPath();
+    ctx.moveTo(destX + TILE_SIZE, destY);
+    ctx.lineTo(destX + TILE_SIZE - edgeThickness * 2, destY);
+    ctx.lineTo(destX + TILE_SIZE, destY + edgeThickness * 2);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  ctx.restore();
+}
+
 function drawTiles(
   ctx: CanvasRenderingContext2D,
   assets: AssetStore,
@@ -62,6 +155,7 @@ function drawTiles(
   effects?: EffectsManagerView,
 ): void {
   const { grid } = state;
+  const theme = getTheme(state.stage.theme);
   const firstCol = Math.max(0, Math.floor(camera.x / TILE_SIZE));
   const lastCol = Math.min(grid.width - 1, Math.ceil((camera.x + LOGICAL_WIDTH) / TILE_SIZE));
 
@@ -74,6 +168,15 @@ function drawTiles(
       const destX = x * TILE_SIZE - camera.x;
       const destY = y * TILE_SIZE - camera.y;
 
+      const draw = (): void => {
+        drawSprite(ctx, assets, spriteName, 0, destX, destY, TILE_SIZE, TILE_SIZE);
+        // オートタイリングの縁取り/内部陰影は通常ブロックのみ(壊れる/トゲ/落ちるブロックは
+        // 区別が重要なため現状のスプライトのまま、という要件どおり対象外にする)。
+        if (type === BlockType.Normal) {
+          drawTileAutoTileOverlay(ctx, theme, destX, destY, computeTileEdgeFlags(grid, x, y));
+        }
+      };
+
       // 地形生成直後のセルは0→1のバウンスするポップアニメで出現させる(effects省略時は常に1=通常表示)。
       const popScale = effects?.getPlacementPopScale(x, y) ?? 1;
       if (popScale < 1) {
@@ -83,10 +186,10 @@ function drawTiles(
         ctx.translate(cx, cy);
         ctx.scale(popScale, popScale);
         ctx.translate(-cx, -cy);
-        drawSprite(ctx, assets, spriteName, 0, destX, destY, TILE_SIZE, TILE_SIZE);
+        draw();
         ctx.restore();
       } else {
-        drawSprite(ctx, assets, spriteName, 0, destX, destY, TILE_SIZE, TILE_SIZE);
+        draw();
       }
     }
   }
@@ -596,11 +699,9 @@ export function renderGame(
   hoverTile: { x: number; y: number } | null = null,
   walletCount = 0,
   effects?: EffectsManagerView,
+  background?: BackgroundLayers,
 ): void {
   ctx.clearRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
-
-  ctx.fillStyle = '#87ceeb';
-  ctx.fillRect(0, 0, LOGICAL_WIDTH, GAME_AREA_HEIGHT);
 
   ctx.save();
   ctx.beginPath();
@@ -618,6 +719,15 @@ export function renderGame(
     ctx.translate(centerX, centerY);
     ctx.scale(zoom, zoom);
     ctx.translate(-centerX, -centerY);
+  }
+
+  // 多層パララックス背景(空グラデ+雲+遠景+近景)。background省略時(未指定)は従来どおりの
+  // 単色の空フォールバックにする(既存の呼び出し元・テストとの後方互換)。
+  if (background) {
+    drawBackground(ctx, background, camera, animTime);
+  } else {
+    ctx.fillStyle = '#87ceeb';
+    ctx.fillRect(0, 0, LOGICAL_WIDTH, GAME_AREA_HEIGHT);
   }
 
   drawTiles(ctx, assets, state, camera, effects);
