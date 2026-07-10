@@ -25,6 +25,7 @@ import { applyStageCleared, isStageSelectable } from './stageUnlock';
 import { AssetStore, loadAssets } from '../../render/assets';
 import { createCamera, updateCamera } from '../../render/camera';
 import type { CameraState } from '../../render/camera';
+import { createEffectsManager } from '../../render/effects';
 import { renderGame } from '../../render/renderer';
 import {
   clearNextButtonRect,
@@ -315,8 +316,14 @@ async function main(): Promise<void> {
     paletteTerrains,
   );
 
+  // パーティクル+画面演出(EffectsManager)。startPlaying()内からreset()するため、
+  // input同様にstartPlaying()より前に生成しておく。
+  const effects = createEffectsManager();
+
   function startPlaying(stageData: StageData, stageIndex: number): Scene {
     lastPersistedTakenCount = 0;
+    // 前回のプレイの余韻(振動・ビネット・紙吹雪・パーティクル)を持ち越さない。
+    effects.reset();
     // プレイ開始時点の最新セーブから、強化(PlayerStats)とloadoutパレットを毎回作り直す
     // (既にプレイ中のゲームには影響しなくてよい、という要件どおり再計算はここでのみ行う)。
     paletteTerrains = resolveLoadoutPalette(save.loadout, terrainMaster, save.unlockedTerrainIds);
@@ -496,6 +503,9 @@ async function main(): Promise<void> {
 
       if (scene.kind === 'playing') {
         const nextGame = updateGame(scene.game, commands, dt);
+        // GameStateのdiff(前フレーム=scene.game・今フレーム=nextGame)からイベントを検出し、
+        // パーティクル/画面演出を発火する(core側は一切変更していない。読み取るだけ)。
+        effects.handleFrame(scene.game, nextGame, commands);
         persistNewlyCollectedCoins(nextGame.stage.id, nextGame.takenThisSession);
         const stageWidthPx = nextGame.grid.width * TILE_SIZE;
         const stageHeightPx = nextGame.grid.height * TILE_SIZE;
@@ -519,6 +529,10 @@ async function main(): Promise<void> {
           scene = { kind: 'playing', stageIndex: scene.stageIndex, stageData: scene.stageData, game: nextGame, camera: nextCamera };
         }
       }
+
+      // パーティクル/タイマーはGameStateのupdateとは独立にdt駆動で進める('clear'シーン中も
+      // 呼び続けることで、クリア画面の背後で紙吹雪が降り続ける演出を成立させる)。
+      effects.update(dt);
     },
     render: () => {
       devOverlay?.sync(scene.kind);
@@ -541,11 +555,11 @@ async function main(): Promise<void> {
         return;
       }
       if (scene.kind === 'playing') {
-        renderGame(ctx, assets, scene.game, scene.camera, animTime, input.getHoverTile(), save.wallet);
+        renderGame(ctx, assets, scene.game, scene.camera, animTime, input.getHoverTile(), save.wallet, effects);
         return;
       }
       // 'clear'
-      renderGame(ctx, assets, scene.game, scene.camera, animTime, null, save.wallet);
+      renderGame(ctx, assets, scene.game, scene.camera, animTime, null, save.wallet, effects);
       drawClearButtons(ctx, hasNextStage(scene.stageIndex));
     },
   });

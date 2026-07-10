@@ -17,6 +17,7 @@ import { BlockType, EnemyType, GameStatus } from '../core/types';
 import type { CoinState, PaletteSlot, TerrainDefinition } from '../core/types';
 import type { AssetStore } from './assets';
 import type { CameraState } from './camera';
+import type { EffectsManagerView } from './effects';
 import { drawSprite } from './sprites';
 
 /**
@@ -58,6 +59,7 @@ function drawTiles(
   assets: AssetStore,
   state: GameState,
   camera: CameraState,
+  effects?: EffectsManagerView,
 ): void {
   const { grid } = state;
   const firstCol = Math.max(0, Math.floor(camera.x / TILE_SIZE));
@@ -71,7 +73,21 @@ function drawTiles(
       if (spriteName === null) continue;
       const destX = x * TILE_SIZE - camera.x;
       const destY = y * TILE_SIZE - camera.y;
-      drawSprite(ctx, assets, spriteName, 0, destX, destY, TILE_SIZE, TILE_SIZE);
+
+      // 地形生成直後のセルは0→1のバウンスするポップアニメで出現させる(effects省略時は常に1=通常表示)。
+      const popScale = effects?.getPlacementPopScale(x, y) ?? 1;
+      if (popScale < 1) {
+        const cx = destX + TILE_SIZE / 2;
+        const cy = destY + TILE_SIZE / 2;
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.scale(popScale, popScale);
+        ctx.translate(-cx, -cy);
+        drawSprite(ctx, assets, spriteName, 0, destX, destY, TILE_SIZE, TILE_SIZE);
+        ctx.restore();
+      } else {
+        drawSprite(ctx, assets, spriteName, 0, destX, destY, TILE_SIZE, TILE_SIZE);
+      }
     }
   }
 }
@@ -91,25 +107,50 @@ function drawFallingBlocks(
   }
 }
 
+/**
+ * 旗をせん断変形(スキュー)で左右に揺らして「なびき」を表現する。ポール側(左端)を固定軸にし、
+ * サインカーブで角度を揺らす(新規アセット不要、描画変形のみ)。x位置ごとに位相をずらして
+ * 複数の旗が同期して揺れないようにする。
+ */
+function drawWavingFlag(
+  ctx: CanvasRenderingContext2D,
+  assets: AssetStore,
+  spriteName: string,
+  destX: number,
+  destY: number,
+  flagW: number,
+  flagH: number,
+  animTime: number,
+  phase: number,
+): void {
+  const skew = Math.sin(animTime * 3 + phase) * 0.08;
+  ctx.save();
+  // ポール側(左端・下端=旗竿の付け根)を不動点にしてせん断する
+  ctx.transform(1, 0, skew, 1, destX, destY + flagH);
+  drawSprite(ctx, assets, spriteName, 0, 0, -flagH, flagW, flagH);
+  ctx.restore();
+}
+
 function drawFlags(
   ctx: CanvasRenderingContext2D,
   assets: AssetStore,
   state: GameState,
   camera: CameraState,
+  animTime: number,
 ): void {
   const flagW = TILE_SIZE;
   const flagH = TILE_SIZE * 1.5;
 
   const goalX = state.stage.goal.x * TILE_SIZE - camera.x;
   const goalY = (state.stage.goal.y + 1) * TILE_SIZE - flagH - camera.y;
-  drawSprite(ctx, assets, 'goal_flag', 0, goalX, goalY, flagW, flagH);
+  drawWavingFlag(ctx, assets, 'goal_flag', goalX, goalY, flagW, flagH, animTime, 0);
 
   for (const checkpoint of state.checkpoints) {
     const cpX = checkpoint.x * TILE_SIZE - camera.x;
     const cpY = (checkpoint.y + 1) * TILE_SIZE - flagH - camera.y;
     ctx.save();
     ctx.globalAlpha = checkpoint.activated ? 1 : 0.5;
-    drawSprite(ctx, assets, 'checkpoint_flag', 0, cpX, cpY, flagW, flagH);
+    drawWavingFlag(ctx, assets, 'checkpoint_flag', cpX, cpY, flagW, flagH, animTime, checkpoint.x);
     ctx.restore();
   }
 }
@@ -133,7 +174,8 @@ export function coinRenderState(coin: Pick<CoinState, 'permanentlyCollected' | '
 /**
  * コインを描画する。'hidden'(今回のセッションで新規取得済み)は描画自体をスキップする
  * (即座に消える)。'dim'(再訪時点で既に取得済み)は半透明で描き続ける。軽い上下ふわふわ
- * アニメをanimTimeで付ける。
+ * アニメと、横方向のスケール振動による疑似回転(coin.svgを横に縮めて伸ばすことで
+ * 縦軸回転しているように見せる。新規アセット不要)をanimTimeで付ける。
  */
 function drawCoins(
   ctx: CanvasRenderingContext2D,
@@ -148,8 +190,15 @@ function drawCoins(
     const bob = Math.sin(animTime * 3 + index) * 3;
     const destX = coin.x * TILE_SIZE - camera.x;
     const destY = coin.y * TILE_SIZE - camera.y + bob;
+    // 0に近づくほど「真横から見た薄い縁」に見える(疑似回転)。0.15を下限にして完全に潰れないようにする。
+    const spinScaleX = Math.max(0.15, Math.abs(Math.cos(animTime * 2.2 + index)));
+    const cx = destX + TILE_SIZE / 2;
+    const cy = destY + TILE_SIZE / 2;
     ctx.save();
     ctx.globalAlpha = renderState === 'dim' ? 0.35 : 1;
+    ctx.translate(cx, cy);
+    ctx.scale(spinScaleX, 1);
+    ctx.translate(-cx, -cy);
     drawSprite(ctx, assets, 'coin', 0, destX, destY, TILE_SIZE, TILE_SIZE);
     ctx.restore();
   });
@@ -177,6 +226,7 @@ function drawJumpman(
   state: GameState,
   camera: CameraState,
   animTime: number,
+  effects?: EffectsManagerView,
 ): void {
   const { jumpman } = state;
   const destX = jumpman.position.x * TILE_SIZE - camera.x;
@@ -191,6 +241,18 @@ function drawJumpman(
   if (jumpman.invincibleTimer > 0 && Math.floor(animTime * 10) % 2 === 0) {
     ctx.globalAlpha = 0.4;
   }
+
+  // squash&stretch: 着地/ジャンプ踏切イベントに合わせた描画変形のみ(当たり判定=JUMPMAN_WIDTH/
+  // HEIGHTには一切影響しない)。足元(スプライトの下端中央)を不動点にして拡縮する。
+  const { scaleX, scaleY } = effects?.getSquashStretch() ?? { scaleX: 1, scaleY: 1 };
+  if (scaleX !== 1 || scaleY !== 1) {
+    const anchorX = destX + destW / 2;
+    const anchorY = destY + destH;
+    ctx.translate(anchorX, anchorY);
+    ctx.scale(scaleX, scaleY);
+    ctx.translate(-anchorX, -anchorY);
+  }
+
   drawSprite(ctx, assets, spriteName, frame, destX, destY, destW, destH);
   ctx.restore();
 }
@@ -506,9 +568,24 @@ function drawClearOverlay(ctx: CanvasRenderingContext2D): void {
   ctx.restore();
 }
 
+/** 被弾時の画面端の赤いビネットフラッシュ(screen-space、alpha=0なら何もしない前提で呼び出し側がガードする) */
+function drawVignette(ctx: CanvasRenderingContext2D, alpha: number): void {
+  ctx.save();
+  const cx = LOGICAL_WIDTH / 2;
+  const cy = GAME_AREA_HEIGHT / 2;
+  const gradient = ctx.createRadialGradient(cx, cy, GAME_AREA_HEIGHT * 0.25, cx, cy, GAME_AREA_HEIGHT * 0.75);
+  gradient.addColorStop(0, 'rgba(200, 0, 0, 0)');
+  gradient.addColorStop(1, `rgba(200, 0, 0, ${0.55 * alpha})`);
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, LOGICAL_WIDTH, GAME_AREA_HEIGHT);
+  ctx.restore();
+}
+
 /**
  * ゲーム画面全体を描画する唯一の入口。
  * walletCount: セーブデータ由来の所持コイン総数(HUD表示用)。app層が渡す(coreはセーブを知らない)。
+ * effects: パーティクル+画面演出(EffectsManager)。省略時(未指定)は全ての演出を無効化した
+ *   従来どおりの描画になる(既存の呼び出し元・テストとの後方互換)。
  */
 export function renderGame(
   ctx: CanvasRenderingContext2D,
@@ -518,6 +595,7 @@ export function renderGame(
   animTime: number,
   hoverTile: { x: number; y: number } | null = null,
   walletCount = 0,
+  effects?: EffectsManagerView,
 ): void {
   ctx.clearRect(0, 0, LOGICAL_WIDTH, LOGICAL_HEIGHT);
 
@@ -529,17 +607,36 @@ export function renderGame(
   ctx.rect(0, 0, LOGICAL_WIDTH, GAME_AREA_HEIGHT);
   ctx.clip();
 
-  drawTiles(ctx, assets, state, camera);
+  // 被弾時の画面振動(4px程度・0.2s)とゴール到達時のズームインを、クリップ矩形はそのままに
+  // 内容だけへ適用する(clipを先に確定させてから変形するので、クリップ自体は揺れない)。
+  const shake = effects?.getShakeOffset() ?? { x: 0, y: 0 };
+  const zoom = effects?.getZoomScale() ?? 1;
+  if (shake.x !== 0 || shake.y !== 0 || zoom !== 1) {
+    const centerX = LOGICAL_WIDTH / 2;
+    const centerY = GAME_AREA_HEIGHT / 2;
+    ctx.translate(shake.x, shake.y);
+    ctx.translate(centerX, centerY);
+    ctx.scale(zoom, zoom);
+    ctx.translate(-centerX, -centerY);
+  }
+
+  drawTiles(ctx, assets, state, camera, effects);
   drawFallingBlocks(ctx, assets, state, camera);
-  drawFlags(ctx, assets, state, camera);
+  drawFlags(ctx, assets, state, camera, animTime);
   drawCoins(ctx, assets, state, camera, animTime);
   drawEnemies(ctx, assets, state, camera, animTime);
-  drawJumpman(ctx, assets, state, camera, animTime);
+  drawJumpman(ctx, assets, state, camera, animTime, effects);
   if (state.status !== GameStatus.Cleared) {
     drawPlacementPreview(ctx, state, camera, hoverTile);
   }
+  effects?.renderParticles(ctx, camera);
 
   ctx.restore();
+
+  const vignetteAlpha = effects?.getVignetteAlpha() ?? 0;
+  if (vignetteAlpha > 0) {
+    drawVignette(ctx, vignetteAlpha);
+  }
 
   drawHud(ctx, state, walletCount);
   drawPaletteArea(ctx, state);
