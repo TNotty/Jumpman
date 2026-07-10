@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
+    />
+    <title>ジャンプマン - マップエディタ</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #181818;
+        color: #eee;
+        font-family: sans-serif;
+        height: 100%;
+        /* ページ全体のダブルタップズーム/オーバースクロールを抑止する(canvas自体はtouch-action:noneで別途保護) */
+        overscroll-behavior: none;
+      }
+      #app {
+        display: flex;
+        height: 100vh;
+        height: 100dvh;
+      }
+      #canvas-area {
+        position: relative;
+        flex: 1;
+        background: #000;
+        overflow: hidden;
+      }
+      #editor-canvas {
+        background: #262626;
+        cursor: crosshair;
+        display: block;
+        /* 表示サイズは常に#canvas-areaいっぱいに広げる(デスクトップ/モバイル共通)。
+           内部解像度(canvas.width/height)はJS側(src/app/editor/main.ts)がResizeObserverで
+           この表示サイズ×devicePixelRatioへ追従させる。表示サイズと内部解像度のアスペクト比が
+           一致しなくなることがない(=常に1:1ピクセル)ため、非等方スケールによる描画の歪みが
+           構造的に発生しない。固定960x640の内部解像度には依存しない。 */
+        width: 100%;
+        height: 100%;
+        /* タッチ操作(1本指ペイント/2本指パン・ズーム)をブラウザのジェスチャーに奪われないようにする */
+        touch-action: none;
+      }
+      #coords {
+        position: absolute;
+        left: 8px;
+        bottom: 8px;
+        background: rgba(0, 0, 0, 0.6);
+        padding: 4px 8px;
+        font-size: 12px;
+        border-radius: 4px;
+        pointer-events: none;
+      }
+      #hint {
+        position: absolute;
+        right: 8px;
+        bottom: 8px;
+        background: rgba(0, 0, 0, 0.6);
+        padding: 4px 8px;
+        font-size: 11px;
+        border-radius: 4px;
+        pointer-events: none;
+        color: #aaa;
+        text-align: right;
+      }
+      #side-panel {
+        width: 340px;
+        background: #202020;
+        padding: 12px;
+        overflow-y: auto;
+        border-left: 1px solid #444;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      h1 {
+        font-size: 16px;
+        margin: 0 0 4px;
+      }
+      h2 {
+        font-size: 13px;
+        margin: 4px 0 2px;
+        border-bottom: 1px solid #444;
+        padding-bottom: 4px;
+        color: #bbb;
+      }
+      #palette {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+      }
+      .tool-btn {
+        background: #2b2b2b;
+        border: 1px solid #555;
+        color: #eee;
+        padding: 8px 2px;
+        font-size: 11px;
+        cursor: pointer;
+        border-radius: 4px;
+        line-height: 1.4;
+      }
+      .tool-btn.selected {
+        border-color: #f1c40f;
+        background: #3a3a1a;
+      }
+      .tool-btn .key {
+        display: block;
+        opacity: 0.55;
+        font-size: 10px;
+      }
+      form label {
+        display: block;
+        font-size: 12px;
+        margin-top: 6px;
+        color: #ccc;
+      }
+      form input,
+      form select {
+        width: 100%;
+        padding: 4px;
+        background: #111;
+        border: 1px solid #555;
+        color: #eee;
+        border-radius: 3px;
+        margin-top: 2px;
+      }
+      .row {
+        display: flex;
+        gap: 6px;
+      }
+      .row > * {
+        flex: 1;
+      }
+      #actions {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      button {
+        cursor: pointer;
+        background: #2b2b2b;
+        border: 1px solid #555;
+        color: #eee;
+        padding: 6px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+      }
+      button:hover {
+        background: #383838;
+      }
+      #errors {
+        color: #ff6b6b;
+        font-size: 12px;
+        white-space: pre-wrap;
+        min-height: 1em;
+      }
+      #autosave-status {
+        color: #888;
+        font-size: 11px;
+      }
+
+      /* --- モバイル導線(常にDOM上には存在するが、デスクトップ幅では非表示) ------------------- */
+      #btn-menu-toggle,
+      #drawer-backdrop,
+      #btn-drawer-close {
+        display: none;
+      }
+
+      /* --- レスポンシブ(細幅画面): 右サイドパネルをドロワー化し、パレットは常時表示の
+             キャンバス下部の横スクロールツールバーとして独立させる ------------------------- */
+      @media (max-width: 768px) {
+        #btn-menu-toggle {
+          display: block;
+          position: fixed;
+          top: 8px;
+          right: 8px;
+          z-index: 220;
+          min-width: 44px;
+          min-height: 44px;
+          font-size: 14px;
+          background: rgba(20, 20, 20, 0.85);
+        }
+
+        #drawer-backdrop {
+          display: block;
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.5);
+          z-index: 190;
+          opacity: 0;
+          pointer-events: none;
+          transition: opacity 0.2s ease;
+        }
+        #drawer-backdrop.open {
+          opacity: 1;
+          pointer-events: auto;
+        }
+
+        #side-panel {
+          position: fixed;
+          top: 0;
+          /* transformではなくrightオフセットでスライドさせる(position:fixedの子要素の
+             containing blockをtransformで書き換えてしまうと、下のpaletteの固定配置が
+             このパネル基準にズレてしまうため)。 */
+          right: -85vw;
+          width: 85vw;
+          max-width: 360px;
+          height: 100%;
+          height: 100dvh;
+          z-index: 200;
+          box-shadow: -4px 0 16px rgba(0, 0, 0, 0.5);
+          transition: right 0.25s ease;
+          padding-bottom: 96px; /* 下部ツールバーの高さ分、最後のボタンが隠れないように */
+        }
+        #side-panel.open {
+          right: 0;
+        }
+
+        #btn-drawer-close {
+          display: block;
+          align-self: flex-end;
+          min-width: 44px;
+          min-height: 44px;
+        }
+
+        /* パレットをドロワーの通常フローから外し、画面下部に常時固定表示する。
+           side-panelがtransformを使っていないため、position:fixedな子要素はここでも
+           正しくビューポート基準(=side-panelの開閉に関わらず画面下部)に配置される。 */
+        #palette {
+          position: fixed;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          z-index: 250;
+          display: flex;
+          flex-direction: row;
+          grid-template-columns: unset;
+          gap: 6px;
+          padding: 8px;
+          overflow-x: auto;
+          overscroll-behavior-x: contain;
+          background: rgba(16, 16, 16, 0.95);
+          border-top: 1px solid #444;
+        }
+        #palette .tool-btn {
+          flex: 0 0 auto;
+          min-width: 64px;
+          min-height: 44px;
+          white-space: nowrap;
+        }
+      }
+    </style>
+    <script type="module" crossorigin src="./assets/editor-taYH6ggp.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/main-BNAk2ykm.js">
+  </head>
+  <body>
+    <div id="app">
+      <div id="canvas-area">
+        <canvas id="editor-canvas" width="960" height="640"></canvas>
+        <div id="coords">x: -, y: -</div>
+        <div id="hint">
+          左ドラッグ: 配置 / 右ドラッグ: 消去<br />Space+ドラッグ or 中ボタン: パン / ホイール: ズーム<br />スマホ:
+          1本指で配置 / 2本指でパン・ピンチズーム
+        </div>
+      </div>
+      <button id="btn-menu-toggle" type="button">☰ メニュー</button>
+      <div id="drawer-backdrop"></div>
+      <div id="side-panel">
+        <button id="btn-drawer-close" type="button">✕ 閉じる</button>
+        <h1>マップエディタ</h1>
+
+        <h2>パレット(数字キー1-9)</h2>
+        <div id="palette"></div>
+
+        <h2>ステージ設定</h2>
+        <form id="stage-form">
+          <label>ID<input type="text" id="field-id" /></label>
+          <label>名前<input type="text" id="field-name" /></label>
+          <div class="row">
+            <label>幅<input type="number" id="field-width" min="4" max="400" /></label>
+            <label>高さ<input type="number" id="field-height" min="4" max="400" /></label>
+          </div>
+          <label>
+            テーマ
+            <select id="field-theme">
+              <option value="grass">grass(草原)</option>
+              <option value="cave">cave(洞窟)</option>
+            </select>
+          </label>
+          <div class="row">
+            <label>マナ初期値<input type="number" id="field-mana-initial" min="0" /></label>
+            <label>マナ上限<input type="number" id="field-mana-max" min="0" /></label>
+          </div>
+          <div class="row">
+            <label>マナ回復/秒<input type="number" id="field-mana-regen" min="0" step="0.1" /></label>
+            <label>消去コスト<input type="number" id="field-erase-cost" min="0" /></label>
+          </div>
+        </form>
+
+        <h2>ファイル</h2>
+        <div id="actions">
+          <button id="btn-new" type="button">新規</button>
+          <button id="btn-download" type="button">JSONダウンロード</button>
+          <button id="btn-load-file" type="button">ファイルから読込</button>
+          <input type="file" id="file-input" accept="application/json" hidden />
+          <button id="btn-load-local" type="button">下書きを読込</button>
+          <button id="btn-load-sample1" type="button">stage01を複製</button>
+          <button id="btn-load-sample2" type="button">stage02を複製</button>
+          <button id="btn-testplay" type="button">テストプレイ</button>
+        </div>
+        <div id="autosave-status"></div>
+        <div id="errors"></div>
+      </div>
+    </div>
+  </body>
+</html>

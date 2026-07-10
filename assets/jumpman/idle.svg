@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="48" viewBox="0 0 64 48">
+  <g transform="translate(0,0)">
+  <g>
+    <ellipse cx="16" cy="24" rx="7" ry="9" fill="#2c3e50" stroke="#16202a" stroke-width="1.2"/>
+    <ellipse cx="13.3" cy="21.3" rx="2.6" ry="4.05" fill="#3d5a75" opacity="0.55"/>
+    <line x1="16" y1="18" x2="13.92" y2="29.82" stroke="#34495e" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="16" y1="18" x2="18.08" y2="29.82" stroke="#34495e" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="16" y1="31" x2="13.57" y2="44.79" stroke="#1b2733" stroke-width="3.6" stroke-linecap="round"/>
+    <line x1="16" y1="31" x2="18.43" y2="44.79" stroke="#1b2733" stroke-width="3.6" stroke-linecap="round"/>
+    <circle cx="16" cy="10" r="6" fill="#f1c27d" stroke="#333333" stroke-width="1.5"/>
+    
+  </g>
+  </g>
+  <g transform="translate(32,0)">
+  <g>
+    <ellipse cx="16" cy="24" rx="7" ry="9.6" fill="#2c3e50" stroke="#16202a" stroke-width="1.2"/>
+    <ellipse cx="13.3" cy="21.12" rx="2.6" ry="4.32" fill="#3d5a75" opacity="0.55"/>
+    <line x1="16" y1="18" x2="14.54" y2="29.91" stroke="#34495e" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="16" y1="18" x2="17.46" y2="29.91" stroke="#34495e" stroke-width="2.6" stroke-linecap="round"/>
+    <line x1="16" y1="31" x2="13.57" y2="44.79" stroke="#1b2733" stroke-width="3.6" stroke-linecap="round"/>
+    <line x1="16" y1="31" x2="18.43" y2="44.79" stroke="#1b2733" stroke-width="3.6" stroke-linecap="round"/>
+    <circle cx="16" cy="9.4" r="6" fill="#f1c27d" stroke="#333333" stroke-width="1.5"/>
+    
+  </g>
+  </g>
+</svg>
